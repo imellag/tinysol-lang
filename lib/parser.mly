@@ -88,14 +88,21 @@ expr:
   | LPAREN; e = expr; RPAREN { e }
 ;
 
-cmd:
+nonseq_cmd:
   | SKIP { Skip }
   | REQ; e = expr { Req(e) } 
   | x = ID; TAKES; e = expr { Assign(x,e) }
   | x = ID; SENDSEP; e=expr; TOKSEP; t = ID; { Send(x,e,t) }
   | f = ID; LPAREN; e=expr; RPAREN { Call(f,e) }
+
+cmd:
+  | c = nonseq_cmd { c }
   | c1 = cmd; CMDSEP; c2 = cmd { Seq(c1,c2) }
-  | IF e = expr; c1 = cmd ELSE c2 = cmd { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd ELSE c2 = nonseq_cmd { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; LBRACE; c1 = cmd; RBRACE; ELSE c2 = nonseq_cmd { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd; ELSE LBRACE; c2 = cmd; RBRACE; { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; LBRACE; c1 = cmd; RBRACE; ELSE; LBRACE; c2 = cmd; RBRACE { If(e,c1,c2) }
+  | LBRACE; c = cmd; RBRACE { c }
   | LBRACE; vdl = list(var_decl) c = cmd; RBRACE { Block(vdl, c) }
 ;
 

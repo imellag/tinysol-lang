@@ -1,9 +1,9 @@
 contract C1 {
     // this is a comment
-    int count;
+    int x;
     bool b;
   
-    function f(x) { skip }
+    function f() { if b then x=2 else b=true; skip }
 
     function pay(?x:T,y) {
         require (count<MAX_COUNT);

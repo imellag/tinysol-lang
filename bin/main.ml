@@ -31,4 +31,8 @@ match Array.length(Sys.argv) with
       "" -> print_newline()
     | s -> s |> parse_contract |> string_of_contract |> print_string)
 (* wrong usage *)      
-| _ -> failwith "Usage: dune exec tinysol [args]"
+| _ -> print_string "Usage:
+  dune exec tinysol parse_cmd   : parses cmd in stdin
+  dune exec tinysol <n_steps>   : executes n_steps of cmd in stdin
+  dune exec tinysol parse_contract <filename>   : parses contract in file
+"
