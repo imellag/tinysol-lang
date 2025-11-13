@@ -10,6 +10,10 @@ let string_of_arg = function
   | IntArg(x) -> x
   | RcvArg(x,t) -> x ^ "?" ^ t
 
+let string_of_modifier = function
+  | Public -> "public"
+  | Private -> "private"
+
 let string_of_args = List.fold_left (fun s a -> s ^ (if s<>"" then "," else "") ^ (string_of_arg a)) ""
 
 let rec string_of_expr = function
@@ -18,9 +22,9 @@ let rec string_of_expr = function
   | Var x -> x
   | IntConst n -> string_of_int n
   | AddrConst s -> "\"" ^ s ^ "\""
-  | Not e -> "not " ^ string_of_expr e
-  | And(e1,e2) -> string_of_expr e1 ^ " and " ^ string_of_expr e2
-  | Or(e1,e2) -> string_of_expr e1 ^ " or " ^ string_of_expr e2
+  | Not e -> "!" ^ string_of_expr e
+  | And(e1,e2) -> string_of_expr e1 ^ " && " ^ string_of_expr e2
+  | Or(e1,e2) -> string_of_expr e1 ^ " || " ^ string_of_expr e2
   | Add(e1,e2) -> string_of_expr e1 ^ "+" ^ string_of_expr e2
   | Sub(e1,e2) -> string_of_expr e1 ^ "-" ^ string_of_expr e2
   | Mul(e1,e2) -> string_of_expr e1 ^ "*" ^ string_of_expr e2
@@ -35,7 +39,7 @@ and string_of_cmd = function
   | Assign(x,e) -> x ^ "=" ^ string_of_expr e ^ ";"
   | Seq(c1,c2) -> string_of_cmd c1 ^ " " ^ string_of_cmd c2
   | If(e,c1,c2) -> "if (" ^ string_of_expr e ^ ") {" ^ string_of_cmd c1 ^ "} else {" ^ string_of_cmd c2 ^ "}"
-  | Send(x,e,t) -> x ^ "!" ^ (string_of_expr e) ^ ":" ^ t ^ ";"
+  | Send(x,e,t) -> x ^ ".transfer(" ^ (string_of_expr e) ^ ":" ^ t ^ ");"
   | Req(e) -> "require " ^ string_of_expr e ^ ";"
   | Call(f,e) -> f ^ "(" ^ string_of_expr e ^ ")"
   | CallExec(c) -> "exec{" ^ string_of_cmd c ^ "}"
@@ -53,7 +57,9 @@ and string_of_var_decl = function
 
 and string_of_fun_decl = function
   | Constr(f,a,c) -> "constructor " ^ f ^ "(" ^ (string_of_args a) ^ ") {" ^ string_of_cmd c ^ "}\n"                 
-  | Proc(f,a,c) -> "function " ^ f ^ "(" ^ (string_of_args a) ^ ") {" ^ string_of_cmd c ^ "}\n"
+  | Proc(f,a,c,m) -> "function " ^ f ^ "(" ^ (string_of_args a) ^ ") " ^
+    string_of_modifier m ^ " " ^ 
+    "{" ^ string_of_cmd c ^ "}\n"
 
 let string_of_var_decls = List.fold_left (fun s d -> s ^ (if s<>"" then ";\n  " else "  ") ^ string_of_var_decl d) ""
 

@@ -39,9 +39,11 @@ open Ast
 %token BOOL
 %token ADDR
 %token RECEIVESEP
-%token SENDSEP
+%token TRANSFER
 %token TOKSEP
 %token ARGSEP
+%token PUBLIC
+%token PRIVATE
 
 %left OR
 %left AND
@@ -55,6 +57,7 @@ open Ast
 
 %start <contract> contract
 %type <var_decl> var_decl
+%type <modifier> modifier
 %type <fun_decl> fun_decl
 %type <cmd> cmd
 %type <args> args
@@ -92,7 +95,7 @@ nonseq_cmd:
   | SKIP; CMDSEP;  { Skip }
   | REQ; e = expr; CMDSEP; { Req(e) } 
   | x = ID; TAKES; e = expr; CMDSEP; { Assign(x,e) }
-  | x = ID; SENDSEP; e=expr; TOKSEP; t = ID; CMDSEP; { Send(x,e,t) }
+  | x = ID; TRANSFER; LPAREN; e=expr; TOKSEP; t = ID; RPAREN; CMDSEP; { Send(x,e,t) }
   | f = ID; LPAREN; e=expr; RPAREN; CMDSEP; { Call(f,e) }
 
 cmd:
@@ -112,10 +115,15 @@ var_decl:
   | ADDR x = ID; CMDSEP { AddrVar x }
 ;
 
+modifier:
+  | PUBLIC { Public }
+  | PRIVATE { Private }
+;
+
 fun_decl:
   | CONSTR; f = ID; LPAREN; a = args; RPAREN; LBRACE; c = cmd; RBRACE { Constr(f,a,c) }
-  | FUN; f = ID; LPAREN; a = args; RPAREN; LBRACE; c = cmd; RBRACE { Proc(f,a,c) }
-  | FUN; f = ID; LPAREN; a = args; RPAREN; LBRACE; RBRACE { Proc(f,a,Skip) }
+  | FUN; f = ID; LPAREN; a = args; RPAREN; m=modifier; LBRACE; c = cmd; RBRACE { Proc(f,a,c,m) }
+  | FUN; f = ID; LPAREN; a = args; RPAREN; m=modifier; LBRACE; RBRACE { Proc(f,a,Skip,m) }
 ;
 
 cmd_test:

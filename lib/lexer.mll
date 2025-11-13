@@ -25,9 +25,9 @@ rule read_token =
   | "}" { RBRACE }
   | "true" { TRUE }
   | "false" { FALSE }
-  | "not" { NOT }
-  | "and" { AND }
-  | "or" { OR }
+  | "!" { NOT }
+  | "&&" { AND }
+  | "||" { OR }
   | "+" { PLUS }
   | "-" { MINUS }
   | "*" { MUL }  
@@ -37,7 +37,7 @@ rule read_token =
   | ">=" { GEQ }  
   | ">" { GE }
   | "?" { RECEIVESEP }
-  | "!" { SENDSEP }
+  | ".transfer" { TRANSFER }
   | ":" { TOKSEP }
   | "contract" { CONTRACT }
   | "skip" { SKIP }
@@ -52,6 +52,8 @@ rule read_token =
   | "int" { INT }
   | "bool" { BOOL }
   | "address" { ADDR }
+  | "public" { PUBLIC }
+  | "private" { PRIVATE }
   | id { ID (Lexing.lexeme lexbuf) }
   | num { CONST (Lexing.lexeme lexbuf) }
   | newline { new_line lexbuf; read_token lexbuf }  

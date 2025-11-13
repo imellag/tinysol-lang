@@ -52,9 +52,13 @@ and var_decl =
   | BoolVar of ide 
   | AddrVar of ide 
 
+and modifier = 
+  | Public 
+  | Private
+
 and fun_decl =
   | Constr of ide * args * cmd
-  | Proc of ide * args * cmd
+  | Proc of ide * args * cmd * modifier
 
 and var_decls = var_decl list
 
