@@ -588,3 +588,47 @@ let%test "test_typecheck_45" = test_typecheck
       function f() public { mapping (uint => uint) m; m[0] = 1; }
   }"
   false
+
+let%test "test_typecheck_46" = test_typecheck 
+  "contract C {
+      mapping (uint => uint) m;
+      function f() public { m = 1; }
+  }"
+  false
+
+let%test "test_typecheck_47" = test_typecheck 
+  "contract C {
+      mapping (uint => uint) m;
+      function f() public { m[0] = m; }
+  }"
+  false
+
+let%test "test_typecheck_48" = test_typecheck 
+  "contract C {
+      mapping (uint => uint) m;
+      function f(int k) public { m[k] = 1; }
+  }"
+  false
+
+let%test "test_typecheck_49" = test_typecheck 
+  "contract C {
+      mapping (uint => uint) m;
+      function f(int k) public { m[uint(k)] = 1; }
+  }"
+  true
+
+let%test "test_typecheck_50" = test_typecheck 
+  "contract C {
+      mapping (uint => uint) m;
+      int x;
+      function f(uint k) public { x = m[k]; }
+  }"
+  false
+
+let%test "test_typecheck_51" = test_typecheck 
+  "contract C {
+      mapping (uint => uint) m;
+      int x;
+      function f(uint k) public { x = int(m[k]); }
+  }"
+  true
