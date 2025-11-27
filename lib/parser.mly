@@ -16,6 +16,7 @@ open Ast
 %token LE
 %token GEQ
 %token GE
+%token DOT
 %token <string> ID
 %token <string> CONST
 %token <string> STRING
@@ -38,6 +39,7 @@ open Ast
 %token RSQUARE
 %token MAPSTO
 %token MAPPING
+%token ENUM
 %token EOF
 
 %token CONTRACT
@@ -47,7 +49,6 @@ open Ast
 %token UINT
 %token BOOL
 %token ADDR
-%token FIELDSEP
 %token THIS
 %token MSGSENDER
 %token MSGVALUE
@@ -76,7 +77,6 @@ open Ast
 %nonassoc UMINUS
 %left MUL
 
-
 %left CMDSEP (* bart: check *)
 %nonassoc ELSE
 
@@ -99,8 +99,15 @@ open Ast
 %%
 
 contract:
-  | CONTRACT; c=ID; LBRACE; vdl = list(var_decl); fdl = list(fun_decl); RBRACE; EOF { Contract(c,vdl,fdl) }
+  | CONTRACT; c=ID; LBRACE; el = list(enum_decl); vdl = contract_vars; fdl = list(fun_decl); RBRACE; EOF { Contract(c,el,vdl,fdl) }
 ;
+
+contract_vars:
+  | vd = var_decl; CMDSEP; l = contract_vars { vd::l }
+  | /* empty */ { [] }
+
+enum_decl:
+  | ENUM; x = ID; LBRACE; ol = separated_list(ARGSEP, ID); RBRACE { Enum(x,ol) }; 
 
 actual_args:
   | a = separated_list(ARGSEP, value) { a } ;
@@ -117,7 +124,8 @@ expr:
   | THIS { This }
   | MSGSENDER { Var("msg.sender") }
   | MSGVALUE { Var("msg.value") }
-  | e=expr; FIELDSEP; BALANCE { BalanceOf(e) }
+  | e = expr; DOT; BALANCE { BalanceOf(e) }
+  | e = expr; DOT; o = ID { match e with Var(x) -> EnumOpt(x,o) | _ -> failwith "enum parser error"}
   | TRUE { True }
   | FALSE { False }
   | BLOCKNUM { BlockNum }
@@ -148,35 +156,6 @@ expr_eof:
   | e = expr; EOF { e }
 ;
 
-nonseq_cmd:
-  | SKIP; CMDSEP;  { Skip }
-  | REQ; e = expr; CMDSEP; { Req(e) } 
-  | x = ID; TAKES; e = expr; CMDSEP; { Assign(x,e) }
-  | x = ID; ADDTAKES; e = expr; CMDSEP; { Assign(x,Add(Var(x),e)) }
-  | x = ID; SUBTAKES; e = expr; CMDSEP; { Assign(x,Sub(Var(x),e)) }
-  | x = ID; LSQUARE; ek = expr; RSQUARE; TAKES; ev = expr; CMDSEP; { MapW(x,ek,ev) }
-  | x = ID; LSQUARE; ek = expr; RSQUARE; ADDTAKES; ev = expr; CMDSEP; { MapW(x,ek,Add(MapR(Var x,ek),ev)) }
-  | x = ID; LSQUARE; ek = expr; RSQUARE; SUBTAKES; ev = expr; CMDSEP; { MapW(x,ek,Sub(MapR(Var x,ek),ev)) }
-  | rcv=expr; FIELDSEP; TRANSFER; LPAREN; amt=expr; RPAREN; CMDSEP; { Send(rcv,amt) }
-  | f = ID; LPAREN; el = separated_list(ARGSEP, expr) RPAREN; CMDSEP; { Call(f,el) }
-;
-
-cmd:
-  | c = nonseq_cmd { c }
-  | c1 = cmd; c2 = cmd { Seq(c1,c2) }
-  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd ELSE c2 = nonseq_cmd { If(e,c1,c2) }
-  | IF LPAREN; e = expr; RPAREN; LBRACE; c1 = cmd; RBRACE; ELSE c2 = nonseq_cmd { If(e,c1,c2) }
-  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd; ELSE LBRACE; c2 = cmd; RBRACE; { If(e,c1,c2) }
-  | IF LPAREN; e = expr; RPAREN; LBRACE; c1 = cmd; RBRACE; ELSE; LBRACE; c2 = cmd; RBRACE { If(e,c1,c2) }
-  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd { If(e,c1,Skip) }
-  | LBRACE; c = cmd; RBRACE { c }
-  | LBRACE; vdl = list(var_decl) c = cmd; RBRACE { Block(vdl, c) }
-;
-
-cmd_eof:
-  | c = cmd; EOF { c }
-;
-
 base_type:
   | INT  { IntBT  }
   | UINT { UintBT }
@@ -200,12 +179,42 @@ var_type:
   | MAPPING; LPAREN; t1 = base_type; opt_id; MAPSTO; t2 = base_type; opt_id; RPAREN { MapT(t1,t2) }
 
 var_decl:
-  | t = var_type; x = ID; CMDSEP { t,x }
+  | t = var_type; x = ID { t,x }
+  | t = ID; i = opt_immutable; x = ID { VarT(CustomBT(t),i),x }
 ;
 
 visibility:
   | PUBLIC { Public }
   | PRIVATE { Private }
+;
+
+nonseq_cmd:
+  | SKIP; CMDSEP;  { Skip }
+  | REQ; e = expr; CMDSEP; { Req(e) } 
+  | x = ID; TAKES; e = expr; CMDSEP; { Assign(x,e) }
+  | x = ID; ADDTAKES; e = expr; CMDSEP; { Assign(x,Add(Var(x),e)) }
+  | x = ID; SUBTAKES; e = expr; CMDSEP; { Assign(x,Sub(Var(x),e)) }
+  | x = ID; LSQUARE; ek = expr; RSQUARE; TAKES; ev = expr; CMDSEP; { MapW(x,ek,ev) }
+  | x = ID; LSQUARE; ek = expr; RSQUARE; ADDTAKES; ev = expr; CMDSEP; { MapW(x,ek,Add(MapR(Var x,ek),ev)) }
+  | x = ID; LSQUARE; ek = expr; RSQUARE; SUBTAKES; ev = expr; CMDSEP; { MapW(x,ek,Sub(MapR(Var x,ek),ev)) }
+  | rcv = expr; DOT; TRANSFER; LPAREN; amt=expr; RPAREN; CMDSEP; { Send(rcv,amt) }
+  | vd = var_decl; CMDSEP; { Decl(vd) }
+  | f = ID; LPAREN; el = separated_list(ARGSEP, expr) RPAREN; CMDSEP; { Call(f,el) }
+;
+
+cmd:
+  | c = nonseq_cmd { c }
+  | c1 = cmd; c2 = cmd { Seq(c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd ELSE c2 = nonseq_cmd { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; LBRACE; c1 = cmd; RBRACE; ELSE c2 = nonseq_cmd { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd; ELSE LBRACE; c2 = cmd; RBRACE; { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; LBRACE; c1 = cmd; RBRACE; ELSE; LBRACE; c2 = cmd; RBRACE { If(e,c1,c2) }
+  | IF LPAREN; e = expr; RPAREN; c1 = nonseq_cmd { If(e,c1,Skip) }
+  | LBRACE; c = cmd; RBRACE { Block([], c) }
+;
+
+cmd_eof:
+  | c = cmd; EOF { c }
 ;
 
 fun_decl:
@@ -241,14 +250,14 @@ transaction:
       txargs = al;
       txvalue = int_of_string n;
   } }
-  | s = ADDRLIT; COLON; c = ADDRLIT; FIELDSEP; f = ID; LPAREN; al = actual_args; RPAREN 
+  | s = ADDRLIT; COLON; c = ADDRLIT; DOT; f = ID; LPAREN; al = actual_args; RPAREN 
   { { txsender = s;
       txto = c;
       txfun = f;
       txargs = al;
       txvalue = 0;
   } }
-  | s = ADDRLIT; COLON; c = ADDRLIT; FIELDSEP; f = ID; LBRACE; VALUE; COLON; n = CONST; RBRACE; LPAREN; al = actual_args; RPAREN 
+  | s = ADDRLIT; COLON; c = ADDRLIT; DOT; f = ID; LBRACE; VALUE; COLON; n = CONST; RBRACE; LPAREN; al = actual_args; RPAREN 
   { { txsender = s;
       txto = c;
       txfun = f;

@@ -40,21 +40,21 @@ rule read_token =
   | ">=" { GEQ }  
   | ">" { GE }
   | "=>" { MAPSTO }
-  | "." { FIELDSEP }
   | "this" { THIS }
   | "msg.sender" { MSGSENDER }
   | "msg.value" { MSGVALUE }
   | "balance" { BALANCE }
-  | "transfer" { TRANSFER }
   | "?" { QMARK }
   | ":" { COLON }
   | "value" { VALUE }
   | "contract" { CONTRACT }
   | "skip" { SKIP }
+  | "transfer" { TRANSFER }
   | "="  { TAKES }
   | "+="  { ADDTAKES }
   | "-="  { SUBTAKES }
   | ";"  { CMDSEP }
+  | "." { DOT }
   | "if" { IF }
   | "else" { ELSE }
   | "require" { REQ }
@@ -66,6 +66,7 @@ rule read_token =
   | "bool" { BOOL }
   | "address" { ADDR }
   | "mapping" { MAPPING }
+  | "enum" { ENUM }
   | "public" { PUBLIC }
   | "private" { PRIVATE }
   | "payable" { PAYABLE }

@@ -47,14 +47,21 @@ let botenv = fun x -> failwith ("variable " ^ x ^ " unbound")
     
 let bind x v f = fun y -> if y=x then v else f y
 
-(* lookup for variable x in state st (tries first in storage of address a) *)
-    
+(* lookup for variable x in sysstate st *)
+
+let lookup_env (x : ide) (el : env list) : exprval option =
+  List.fold_left
+  (fun acc e -> match acc with
+    | Some v -> Some v
+    | None -> try Some (e x) with _ -> None)
+  None
+  el
+
 let lookup_var (a : addr) (x : ide) (st : sysstate) : exprval =
-  try 
-    (* look up for x in environment *)
-    let e = topenv st in
-    e x
-  with _ -> 
+  (* look up for x in environment stack *)
+  match lookup_env x st.stackenv with
+  | Some v -> v 
+  | None -> 
     (* look up for x in storage of a *)
     let cs = st.accounts a in
     cs.storage x
@@ -62,6 +69,19 @@ let lookup_var (a : addr) (x : ide) (st : sysstate) : exprval =
 let lookup_balance (a : addr) (st : sysstate) : int =
   try (st.accounts a).balance
   with _ -> 0
+
+let lookup_enum_option (st : sysstate) (a : addr) (enum_name : ide) (option_name : ide) : int option = 
+  try 
+    match (st.accounts a).code with
+    | Some(Contract(_,edl,_,_)) -> 
+      edl
+      |> List.filter (fun (Enum(y,_)) -> y=enum_name)
+      |> fun edl -> (match edl with [Enum(_,ol)] -> Some ol | _ -> None)  
+      |> fun l_opt -> (match l_opt with 
+        | None -> None
+        | Some ol -> List.find_index (fun o -> o=option_name) ol)
+    | _ -> assert(false) (* should not happen *)
+  with _ -> None
 
 let exists_account (st : sysstate) (a : addr) : bool =
   try let _ = st.accounts a in true
@@ -71,12 +91,27 @@ let exists_ide_in_storage (cs : account_state) (x : ide) : bool =
   try let _ = cs.storage x in true
   with _ -> false
 
+let rec update_env (el : env list) (x:ide) (v:exprval) : env list =
+ match el with
+  | [] -> failwith (x ^ " not bound in env")
+  | e::el' -> 
+    try let _ = e x in (* checks if ide x is bound in e *)
+      (bind x v e) :: el'
+    with _ -> e :: (update_env el' x v)
+
 let update_var (st : sysstate) (a:addr) (x:ide) (v:exprval) : sysstate = 
-  let cs = st.accounts a in
+  (* first tries to update environment if x is bound there *)
+   try 
+    let el' = update_env st.stackenv x v in
+    { st with stackenv = el' }
+  with _ -> 
+  (* if not, tries to update storage of a *)
+    let cs = st.accounts a in
     if exists_ide_in_storage cs x then 
       let cs' = { cs with storage = bind x v cs.storage } in 
       { st with accounts = bind a cs' st.accounts }
     else failwith (x ^ " not bound in storage of " ^ a)   
+
 
 let update_map (st : sysstate) (a:addr) (x:ide) (k:exprval) (v:exprval) : sysstate = 
   let cs = st.accounts a in
@@ -89,11 +124,3 @@ let update_map (st : sysstate) (a:addr) (x:ide) (k:exprval) (v:exprval) : syssta
       | _ -> failwith ("update_map: " ^ x ^ " is not a mapping")
       else failwith ("mapping " ^ x ^ " not bound in storage of " ^ a)   
 
-let update_env (st : sysstate) (x:ide) (v:exprval) : sysstate =
-  let el = st.stackenv in match el with
-  | [] -> failwith "Empty stack"
-  | e::el' -> 
-    try let _ = e x in (* checks if ide x is bound in e *)
-      let e' = bind x v e in 
-      { st with stackenv = e'::el' }
-    with _ -> failwith (x ^ " not bound in env")

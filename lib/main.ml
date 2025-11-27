@@ -122,7 +122,14 @@ let rec eval_expr (st : sysstate) (a : addr) = function
       | Addr a -> Addr a (* payable cast is only implemented by the type checker *)
       | _ -> raise (TypeError "AddrCast")
     )          
-  
+  | EnumOpt(x,o) -> (match lookup_enum_option st a x o with
+    | Some n -> Int n
+    | None -> failwith "Enum lookup failed (bug in typechecking?)")
+  | EnumCast(_,e) -> (match eval_expr st a e with
+      | Int n -> Int n (* TODO: add dynamic type constraint? *)
+      | _ -> failwith "TODO: EnumCast"
+    )
+
 let eval_var_decls (vdl : var_decl list) (e : env): env =
   List.fold_left
     (fun acc vd ->
@@ -131,12 +138,46 @@ let eval_var_decls (vdl : var_decl list) (e : env): env =
         | VarT(UintBT,_),x -> acc |> bind x (Int 0)
         | VarT(BoolBT,_),x -> acc |> bind x (Bool false)
         | VarT(AddrBT _,_),x -> acc |> bind x (Addr "0")
+        | VarT(CustomBT _,_),x -> acc |> bind x (Int 0)
         | MapT(_),_ -> failwith "mappings cannot be used in local declarations" 
     )
     e
     vdl
 
-(******************************************************************************)
+
+let rec gather_decls = function
+  | Decl d -> [d]
+  | Seq(c1,c2) -> gather_decls c1 @ gather_decls c2
+  | _ -> []
+
+let rec purge_decls = function
+  | Decl _ -> Skip
+  | Seq(Decl _,c2) -> purge_decls c2
+  | Seq(c1,Decl _) -> purge_decls c1
+  | Seq(c1,c2) -> Seq(purge_decls c1, purge_decls c2)
+  | Block(vdl,c) -> Block(vdl @ gather_decls c, purge_decls c)
+  | _ as c -> c 
+
+let rec blockify_cmd c = 
+  let vdl = gather_decls c in
+  let c' = purge_decls c in
+  if vdl=[] then blockify_subterms c'
+  else Block(vdl, blockify_subterms c')
+
+and blockify_subterms = function
+  | Block(vdl,c) -> Block(vdl, blockify_subterms c) 
+  | Seq(c1,c2) -> Seq(blockify_subterms c1, blockify_subterms c2) 
+  | If(e,c1,c2) -> If(e, blockify_cmd c1, blockify_cmd c2)
+  | _ as c -> c
+
+let blockify_fun = function
+  | Constr (al,c,p) -> Constr (al,blockify_cmd c,p)
+  | Proc (f,al,c,v,p) -> Proc(f,al,blockify_cmd c,v,p)
+
+let blockify_contract (Contract(c,el,vdl,fdl)) =
+  Contract(c,el,vdl,List.map blockify_fun fdl)
+
+  (******************************************************************************)
 (*                       Small-step semantics of commands                     *)
 (******************************************************************************)
 
@@ -146,12 +187,7 @@ let rec trace1_cmd = function
   | Cmd(c,st,a) -> (match c with
     | Skip -> St st
     | Assign(x,e) -> (
-        (* first tries to update environment if x is bound there *)
-        try 
-          St (update_env st x (eval_expr st a e)) 
-        (* if not, tries to update storage of a *)
-        with _ -> 
-          St (update_var st a x (eval_expr st a e)))
+        St (update_var st a x (eval_expr st a e)))
     | MapW(x,ek,ev) ->
         let k = eval_expr st a ek in 
         St (update_map st a x k (eval_expr st a ev))
@@ -181,14 +217,16 @@ let rec trace1_cmd = function
     | Call(_,_) -> failwith "TODO"
     | ExecCall _  -> failwith "TODO"
     | Block(vdl,c) ->
-        let e = topenv st in
-        let e' = eval_var_decls vdl e in
+        (* let e = topenv st in *)
+        let e' = eval_var_decls vdl botenv in
         Cmd(ExecBlock c, { st with stackenv = e'::st.stackenv} , a)
     | ExecBlock(c) -> (match trace1_cmd (Cmd(c,st,a)) with
         | St st -> St (popenv st)
         | Reverted -> Reverted
         | Cmd(c1',st1,a') -> Cmd(ExecBlock(c1'),st1,a'))
+    | Decl _ -> assert(false) (* should not happen after blockify *)
     )
+
 (* (match (topenv st f,eval_expr st e) with
           (IProc(a,c),Int n) ->
           let l = getloc st in
@@ -216,8 +254,9 @@ let default_value = function
 | UintBT -> Int 0
 | BoolBT -> Bool false
 | AddrBT _ -> Addr "0"
+| CustomBT _ -> Int 0
 
-let init_storage (Contract(_,vdl,_)) : ide -> exprval =
+let init_storage (Contract(_,_,vdl,_)) : ide -> exprval =
   List.fold_left (fun acc vd -> 
       let (x,v) = (match vd with 
         | VarT(t,_),x -> (x, default_value t)
@@ -268,7 +307,7 @@ let faucet (a : addr) (n : int) (st : sysstate) : sysstate =
 (* Executes steps of a transaction in a system state, returning a trace       *)
 (******************************************************************************)
 
-let find_fun (Contract(_,_,fdl)) (f : ide) : fun_decl option =
+let find_fun (Contract(_,_,_,fdl)) (f : ide) : fun_decl option =
   List.fold_left 
   (fun acc fd -> match fd with
     | Constr(_) -> if acc=None && f="constructor" then Some fd else acc  
@@ -313,7 +352,7 @@ let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : sysstate =
             false (* deploy=false ==> cannot call constructor *) 
     else (match tx.txargs with 
       | Addr(code)::_ ->
-          (try let c = parse_contract code in 
+          (try let c = code |> parse_contract |> blockify_contract in 
             { balance=tx.txvalue; storage = init_storage c; code = Some c }, 
             true (* deploy=true ==> must call constructor *)
           with _ -> failwith ("exec_tx: syntax error in contract code: " ^ code))

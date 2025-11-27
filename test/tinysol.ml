@@ -12,6 +12,7 @@ open TinysolLib.Static
 let test_parse_cmd (c : string) (t : cmd) =
   c
   |> parse_cmd
+  |> blockify_cmd
   |> fun x -> x = t
 
 let%test "test_parse_cmd_1" = test_parse_cmd
@@ -82,7 +83,7 @@ let%test "test_parse_contract_2" = try
   parse_contract
   "contract C { uint x; function f() public { x = block.number; } }"
   = 
-  (Contract ("C", [(VarT(UintBT,false), "x")],
+  (Contract ("C", [], [(VarT(UintBT,false), "x")],
   [Proc ("f", [], Assign ("x", BlockNum), Public, false)]))
   with _ -> false
 
@@ -108,7 +109,7 @@ let%test "test_parse_contract_5" = try
   parse_contract
   "contract C { address payable a; function f() public payable { a.transfer(address(this).balance); } }"
   =
-  (Contract ("C", [(VarT (AddrBT true, false), "a")],
+  (Contract ("C", [], [(VarT (AddrBT true, false), "a")],
   [Proc ("f", [], Send (Var "a", BalanceOf (AddrCast This)), Public, true)]))
   with _ -> false
 
@@ -116,11 +117,28 @@ let%test "test_parse_contract_6" = try
   parse_contract
   "contract C { function f(address payable a) public payable { a.transfer(address(this).balance); } }"
   =
-  (Contract ("C", [],
+  (Contract ("C", [], [],
  [Proc ("f", [(VarT (AddrBT true, false), "a")],
    Send (Var "a", BalanceOf (AddrCast This)), Public, true)]))
   with _ -> false
 
+let%test "test_parse_contract_7" = try
+  parse_contract 
+  "contract C { enum State {IDLE, REQ} uint x; function f() public { x = x+1; } }"
+  =
+  (Contract ("C", [Enum ("State", ["IDLE"; "REQ"])],
+  [(VarT (UintBT, false), "x")],
+  [Proc ("f", [], Assign ("x", Add (Var "x", IntConst 1)), Public, false)]))
+  with _ -> false
+
+let%test "test_parse_contract_8" = try
+  parse_contract
+  "contract C { enum State {IDLE, REQ} State s; function f() public { s = State.REQ; } }"
+  =
+  (Contract ("C", [Enum ("State", ["IDLE"; "REQ"])],
+ [(VarT (CustomBT "State", false), "s")],
+ [Proc ("f", [], Assign ("s", EnumOpt ("State", "REQ")), Public, false)]))
+  with _ -> false
 
 (********************************************************************************
  test_trace_cmd : (command, n_steps, variable, expected value after n_steps)
@@ -129,6 +147,7 @@ let%test "test_parse_contract_6" = try
 let test_trace_cmd (c,n_steps,var,exp_val) =
   c
   |> parse_cmd
+  |> blockify_cmd
   |> fun c -> last (trace_cmd n_steps c "0xCAFE" init_sysstate)
   |> fun t -> match t with
   | St st -> lookup_var "0xCAFE" var st = exp_val
@@ -154,7 +173,7 @@ let%test "test_trace_cmd_6" = test_trace_cmd
   ("{ int x; x=51; { int x; x=1; } { int x; x=x+3; } x=x+5; skip; }", 7, "x", Int 56)  
 
 let%test "test_trace_cmd_7" = test_trace_cmd
-  ("{ int x; x=51; { int y; y=x+1; skip; } { x = 0; } x=x+5; skip; }", 7, "x", Int 5)  
+  ("{ int x; x=51; { int y; y=x+1; skip; } { x = 0; } x=x+5; skip; }", 8, "x", Int 5)  
 
 let%test "test_trace_cmd_8" = test_trace_cmd
   ("{ int x; x=51; { int y; y=x+1; skip; } { int x; x = 0; } x=x+5; skip; }", 8, "x", Int 56)  
@@ -325,10 +344,13 @@ let%test "test_map_1" = test_exec_tx
   ["0xA:0xC.f(0,1)"; "0xA:0xC.g(0)"] 
   ["x==1"]
 
-
+let%test "test_enum_1" = test_exec_tx
+  "contract C { enum State {IDLE,REQ} State s; function f() public { s = State.REQ; } }"
+  ["0xA:0xC.f()"] 
+  ["s==State.REQ"]
 
 let test_typecheck (src: string) (exp : bool)=
-  let c = parse_contract src in 
+  let c = src |> parse_contract |> blockify_contract in 
   try typecheck_contract c = exp
   with _ -> not exp  
 
@@ -835,3 +857,15 @@ let%test "test_typecheck_ife_8" = test_typecheck
       function f(uint y) public { x = -4 + ((y>5)?4:5); }
   }"
   true (* this is not type-checkable by solc *)
+
+let%test "test_typecheck_enum_1" = test_typecheck
+  "contract C { enum State {IDLE,REQ} State s; function f() public { s = State.REQ; } }"
+  true
+
+let%test "test_typecheck_enum_2" = test_typecheck
+  "contract C { enum State {IDLE,REQ} State s; function f() public { s = State.req; } }"
+  false
+
+let%test "test_typecheck_enum_3" = test_typecheck
+  "contract C { enum State {IDLE,REQ} State s; function f() public { s = Stat.REQ; } }"
+  false

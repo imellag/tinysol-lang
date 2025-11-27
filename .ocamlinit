@@ -2,3 +2,4 @@ open TinysolLib
 open Ast
 open Utils
 open Static
+open Main

@@ -73,7 +73,8 @@ let rec vars_of_expr = function
   | IntConst _
   | AddrConst _
   | This 
-  | BlockNum -> []               
+  | BlockNum 
+  | EnumOpt _ -> []               
   | Var x -> [x]
   | BalanceOf e
   | Not e
@@ -94,9 +95,11 @@ let rec vars_of_expr = function
   | Geq(e1,e2) 
   | Ge(e1,e2) -> union (vars_of_expr e1) (vars_of_expr e2)                    
   | IfE(e1,e2,e3) -> union (vars_of_expr e1) (union (vars_of_expr e2) (vars_of_expr e3))
+  | EnumCast(x,e) ->  union [x] (vars_of_expr e)
 
 and vars_of_cmd = function
-    Skip -> []
+  | Skip -> []
+  | Decl(_,x) -> [x]
   | Assign(x,e) -> union [x] (vars_of_expr e)
   | MapW(x,ek,ev) -> union [x] (union (vars_of_expr ek) (vars_of_expr ev))
   | Seq(c1,c2) -> union (vars_of_cmd c1) (vars_of_cmd c2)
@@ -108,7 +111,7 @@ and vars_of_cmd = function
   | Block(_,c) -> vars_of_cmd c
   | ExecBlock(c) -> vars_of_cmd c
 
-let vars_of_contract (Contract(_,vdl,_)) : ide list = 
+let vars_of_contract (Contract(_,_,vdl,_)) : ide list = 
   List.fold_left (fun acc vd -> match vd with _,x -> x::acc ) [] vdl 
 
 
@@ -155,19 +158,22 @@ let rec string_of_expr = function
   | UintCast(e) -> "int(" ^ string_of_expr e ^ ")"
   | AddrCast(e) -> "address(" ^ string_of_expr e ^ ")"
   | PayableCast(e) -> "payable(" ^ string_of_expr e ^ ")"
+  | EnumOpt(x,o) -> x ^ "." ^ o
+  | EnumCast(x,e) -> x ^ "(" ^ string_of_expr e ^ ")"
 
 and string_of_cmd = function
-    Skip -> "skip;"
+  | Skip -> "skip;"
+  | Decl d -> string_of_var_decl d ^ " ;"
   | Assign(x,e) -> x ^ " = " ^ string_of_expr e ^ ";"
   | MapW(x,ek,ev) -> x ^ "[" ^ string_of_expr ek ^ "] = " ^ string_of_expr ev ^ ";"
   | Seq(c1,c2) -> string_of_cmd c1 ^ " " ^ string_of_cmd c2
-  | If(e,c1,c2) -> "if (" ^ string_of_expr e ^ ") {" ^ string_of_cmd c1 ^ "} else {" ^ string_of_cmd c2 ^ "}"
+  | If(e,c1,c2) -> "if (" ^ string_of_expr e ^ ") " ^ string_of_cmd c1 ^ " else " ^ string_of_cmd c2 ^ ""
   | Send(e1,e2) -> string_of_expr e1 ^ ".transfer(" ^ (string_of_expr e2) ^ ");"
   | Req(e) -> "require " ^ string_of_expr e ^ ";"
   | Call(f,el) -> f ^ "(" ^ (List.fold_left (fun acc e -> acc ^ "," ^ string_of_expr e) "" el) ^ ")"
   | ExecCall(c) -> "exec{" ^ string_of_cmd c ^ "}"
   | Block(vdl,c) -> "{" 
-    ^ List.fold_left (fun s d -> s ^ (if s<>"" then "; " else "") ^ string_of_var_decl d) "" vdl ^ ";" 
+    ^ List.fold_left (fun s d -> s ^ string_of_var_decl d ^ "; ") "" vdl 
     ^ string_of_cmd c 
     ^ "}"
   | ExecBlock(c) -> "{" 
@@ -179,6 +185,7 @@ and string_of_base_type = function
 | UintBT -> "uint"
 | BoolBT -> "bool"
 | AddrBT p -> "address" ^ (if p then " payable" else "")
+| CustomBT x -> x
 
 and string_of_var_type = function
 | VarT(t,i) -> string_of_base_type t ^ (if i then " immutable" else "")
@@ -204,9 +211,18 @@ let string_of_fun_decl = function
 
 let string_of_fun_decls = List.fold_left (fun s d -> s ^ (if s<>"" then "  " else " ") ^ string_of_fun_decl d) ""
 
-let string_of_contract (Contract(c,vdl,fdl)) = 
+let string_of_enum_decl (Enum(x,ol)) = 
+  "enum " ^ x ^ "{" ^
+  List.fold_left(fun acc o -> if acc="" then o else acc ^ ", " ^ o) "" ol ^
+  "}"
+
+let string_of_enum_decls = List.fold_left (fun s d -> s ^ (if s<>"" then "  " else " ") ^ string_of_enum_decl d) ""
+
+
+let string_of_contract (Contract(c,edl,vdl,fdl)) = 
   "contract " ^ c ^ 
   " {\n" ^ 
+  (let s = string_of_enum_decls edl in if s="" then "" else s ^ ";\n ") ^ 
   (let s = string_of_var_decls vdl in if s="" then "" else s ^ ";\n ") ^ 
   (string_of_fun_decls fdl) ^ 
   " }"

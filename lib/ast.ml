@@ -33,6 +33,8 @@ type expr =
   | UintCast of expr
   | AddrCast of expr
   | PayableCast of expr
+  | EnumOpt of ide * ide
+  | EnumCast of ide * expr
 
 (* commands *)
           
@@ -48,12 +50,14 @@ and cmd =
   | ExecCall of cmd           (* Runtime only: c is the cmd being reduced *)
   | Block of var_decls * cmd
   | ExecBlock of cmd          (* Runtime only: c is the cmd being reduced *)
+  | Decl of var_decl          (* Static-time only: Decl is converted into block*)
 
 and base_type = 
   | IntBT           (* int *)
   | UintBT          (* uint *) 
   | BoolBT          (* bool *)
   | AddrBT of bool  (* address (the bool b in AddrBT(b) tells whether payable (b=1) or not (b=0) *)
+  | CustomBT of ide (* custom base type (contract or enum) *)
 
 (* a variable type can be either:
   - a base type with a bool i telling whether the variable is mutable (i=false) or immutable (i=true)
@@ -73,14 +77,16 @@ and visibility =
   | Private
 
 and fun_decl =
-  | Constr of var_decls * cmd * bool
-  | Proc of ide * var_decls * cmd * visibility * bool
+  | Constr of var_decls * cmd * bool (* payable *)
+  | Proc of ide * var_decls * cmd * visibility * bool (* payable *)
 
 and var_decls = var_decl list
 
 and fun_decls = fun_decl list
 
-type contract = Contract of ide * var_decls * fun_decls
+type enum_decl = Enum of (ide * ide list)
+
+type contract = Contract of ide * (enum_decl list) * var_decls * fun_decls
 
 (******************************************************************************)
 (*                                   Transactions                             *)
