@@ -359,6 +359,33 @@ let%test "test_enum_3" = test_exec_tx
   ["0xA:0xC.f()"] 
   ["s==State.IDLE"]
 
+let%test "test_enum_4" = test_exec_tx
+  "contract C { 
+    enum State {Q0,Q1} 
+    State s;
+    function f(int y) public { if (s==State(y)) s=State.Q1; else s=State.Q0; } 
+  }"
+  ["0xA:0xC.f(0)"] 
+  ["s==State.Q1"]
+
+let%test "test_enum_5" = test_exec_tx
+  "contract C { 
+    enum State {Q0,Q1} 
+    State s;
+    function f(int y) public { int q; q = (y==0)?1:0; if (s==State(y)) s=State(q); } 
+  }"
+  ["0xA:0xC.f(0)"; "0xA:0xC.f(1)"; "0xA:0xC.f(2)"] 
+  ["s==State.Q0"]
+
+let%test "test_enum_6" = test_exec_tx
+  "contract C { 
+    enum State {Q0,Q1} 
+    State s;
+    function f(int y) public { int q; q = (y==0)?1:0; if (s==State(y)) s=State(q); } 
+  }"
+  ["0xA:0xC.f(0)"; "0xA:0xC.f(1)"; "0xA:0xC.f(2)"; "0xA:0xC.f(0)"] 
+  ["s==State.Q1"]
+
 
 let test_typecheck (src: string) (exp : bool)=
   let c = src |> parse_contract |> blockify_contract in 
