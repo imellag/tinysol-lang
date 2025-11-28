@@ -69,6 +69,10 @@ open Ast
 %token REVERT
 %token BLOCKNUM
 
+%token PRAGMA
+%token SOLIDITY
+%token <string> VERSION
+
 %left OR
 %left AND
 %nonassoc NOT
@@ -99,8 +103,13 @@ open Ast
 %%
 
 contract:
-  | CONTRACT; c=ID; LBRACE; el = list(enum_decl); vdl = contract_vars; fdl = list(fun_decl); RBRACE; EOF { Contract(c,el,vdl,fdl) }
+  | opt_pragma; CONTRACT; c=ID; LBRACE; el = list(enum_decl); vdl = contract_vars; fdl = list(fun_decl); RBRACE; EOF { Contract(c,el,vdl,fdl) }
 ;
+
+opt_pragma:
+  | PRAGMA; SOLIDITY; GEQ; VERSION; CMDSEP { }
+  | PRAGMA; SOLIDITY; LEQ; VERSION; CMDSEP { }
+  | /* empty */ { }
 
 contract_vars:
   | vd = var_decl; CMDSEP; l = contract_vars { vd::l }

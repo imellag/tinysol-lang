@@ -12,6 +12,7 @@ let id = letter_or_underscore chr*
 let addrlit = '0' 'x' chr+
 let num = ['0'-'9']|['1'-'9']['0'-'9']*
 let newline = '\r' | '\n' | "\r\n"
+let version = ['0'-'9']'.'['0'-'9']('.'['0'-'9'])?
 
 rule read_token =
   parse
@@ -76,9 +77,12 @@ rule read_token =
   | "assert" { ASSERT }
   | "revert" { REVERT }
   | "block.number" { BLOCKNUM }
+  | "pragma" { PRAGMA }
+  | "solidity" { SOLIDITY }
   | id { ID (Lexing.lexeme lexbuf) }
   | addrlit { ADDRLIT (Lexing.lexeme lexbuf) }
   | num { CONST (Lexing.lexeme lexbuf) }
+  | version { VERSION (Lexing.lexeme lexbuf) }
   | newline { new_line lexbuf; read_token lexbuf }  
   | eof { EOF }
 
