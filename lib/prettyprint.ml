@@ -53,7 +53,7 @@ and vars_of_cmd = function
   | Return(e) -> vars_of_expr e               
   | Block(_,c) -> vars_of_cmd c
   | ExecBlock(c) 
-  | ExecProc(c) -> vars_of_cmd c
+  | ExecProcCall(c) -> vars_of_cmd c
   | ProcCall(e_to,_,e_value,e_args) -> union (vars_of_expr e_to) (union (vars_of_expr e_value) 
     (List.fold_left (fun acc ea -> union acc (vars_of_expr ea)) [] e_args))
   
@@ -132,7 +132,7 @@ and string_of_cmd = function
   | ProcCall(e_to,f,e_value,e_args) -> string_of_expr e_to ^ "." ^ f ^ 
     "{value:" ^ string_of_expr e_value ^ "}" ^
     "(" ^ (List.fold_left (fun acc ea -> acc ^ (if acc="" then "" else ",") ^ string_of_expr ea) "" e_args) ^ ")"
-  | ExecProc(c) -> "{" 
+  | ExecProcCall(c) -> "{" 
     ^ string_of_cmd c 
     ^ "}"
 

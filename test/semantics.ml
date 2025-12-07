@@ -480,3 +480,14 @@ let%test "test_fun_12" = test_exec_fun
   }"
   ["0xA:0xD.g()"] 
   [("0xC","x==7"); ("0xD","y==1")]
+
+let%test "test_fun_13" = test_exec_fun
+  "contract C { D d; uint x; constructor() payable { d = \"0xD\"; x=5; } 
+      function f() public { x=d.h(); } 
+  }"
+  "contract D { C c; uint y; constructor() payable { c = \"0xC\"; } 
+      function g() public { { int x; x=1; c.f(); y=x; } }
+      function h() public returns(uint) { return 7; }
+  }"
+  ["0xA:0xD.g()"] 
+  [("0xC","x==7"); ("0xD","y==1")]

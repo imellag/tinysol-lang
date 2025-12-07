@@ -288,8 +288,6 @@ let rec step_expr (e,st) = match e with
     let (e_to', st') = step_expr (e_to, st) in
     (FunCall(e_to',f,e_value,e_args), st')
 
-  | ExecFunCall(Return e) when is_val e -> (e, pop_callstack st)
-
   | ExecFunCall(c) -> (match step_cmd (CmdSt(c,st)) with
     | St _ -> failwith "function terminated without return"
     | Reverted -> failwith "no"
@@ -427,7 +425,7 @@ and step_cmd = function
                     blocknum = st.blocknum;
                     active = st.active } in
         let c = get_cmd_from_fun fdecl in
-        CmdSt(ExecProc(c), st')
+        CmdSt(ExecProcCall(c), st')
 
     | ProcCall(e_to,f,e_value,e_args) when is_val e_to && is_val e_value -> 
       let (e_args', st') = step_expr_list (e_args, st) in 
@@ -441,11 +439,11 @@ and step_cmd = function
       let (e_to', st') = step_expr (e_to, st) in 
       CmdSt(ProcCall(e_to',f,e_value,e_args), st')
 
-    | ExecProc(c) -> (match step_cmd (CmdSt(c,st)) with
+    | ExecProcCall(c) -> (match step_cmd (CmdSt(c,st)) with
       | St st -> St (pop_callstack st)
       | Reverted -> Reverted
-      | Returned v -> Returned v
-      | CmdSt(c1',st1) -> CmdSt(ExecBlock(c1'),st1))
+      | Returned _ -> St (pop_callstack st)
+      | CmdSt(c1',st1) -> CmdSt(ExecProcCall(c1'),st1))
   )
 
 (* recursively evaluate expression until it reaches a value (might not terminate) *)
