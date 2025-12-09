@@ -266,7 +266,7 @@ let rec step_expr (e,st) = match e with
 
   | ExecFunCall(c) -> (match step_cmd (CmdSt(c,st)) with
     | St _ -> failwith "function terminated without return"
-    | Reverted -> failwith "no"
+    | Reverted s -> failwith s
     | Returned v -> (expr_of_exprval v, pop_callstack st)
     | CmdSt(c',st') -> (ExecFunCall(c'),st')
     )
@@ -288,8 +288,11 @@ and step_expr_list (el, st) = match el with
 
 and step_cmd = function
     St _ -> raise NoRuleApplies
-  | Reverted -> Reverted
+
+  | Reverted s -> Reverted s
+
   | Returned v -> Returned v
+
   | CmdSt(c,st) -> (match c with
 
     | Skip -> St st
@@ -311,14 +314,14 @@ and step_cmd = function
     
     | Seq(c1,c2) -> (match step_cmd (CmdSt(c1,st)) with
         | St st1 -> CmdSt(c2,st1)
-        | Reverted -> Reverted
+        | Reverted s -> Reverted s
         | Returned v -> Returned v
         | CmdSt(c1',st1) -> CmdSt(Seq(c1',c2),st1))
 
     | If(e,c1,c2) when is_val e -> (match exprval_of_expr e with
         | Bool true  -> CmdSt(c1,st)
         | Bool false -> CmdSt(c2,st)
-        | _ -> failwith("if: type error"))
+        | _ -> Reverted "if: type error")
     | If(e,c1,c2) -> 
         let (e', st') = step_expr (e, st) in
         CmdSt(If(e',c1,c2), st')
@@ -328,7 +331,7 @@ and step_cmd = function
         let amt = int_of_expr eamt in
         let from = (List.hd st.callstack).callee in 
         let from_bal = (st.accounts from).balance in
-        if from_bal<amt then failwith "insufficient balance" else
+        if from_bal<amt then Reverted "insufficient balance" else
         let from_state =  { (st.accounts from) with balance = from_bal - amt } in
         if exists_account st rcv then
           let rcv_state = { (st.accounts rcv) with balance = (st.accounts rcv).balance + amt } in
@@ -346,7 +349,8 @@ and step_cmd = function
         CmdSt(Send(ercv',eamt), st')
 
     | Req(e) when is_val e -> 
-        let b = bool_of_expr e in if b then St st else Reverted
+        let b = bool_of_expr e in 
+        if b then St st else Reverted "require condition is false"
     | Req(e) -> 
       let (e', st') = step_expr (e, st) in CmdSt(Req(e'), st')
 
@@ -371,7 +375,7 @@ and step_cmd = function
 
     | ExecBlock(c) -> (match step_cmd (CmdSt(c,st)) with
         | St st -> St (pop_locals st)
-        | Reverted -> Reverted
+        | Reverted s -> Reverted s
         | Returned v -> Returned v
         | CmdSt(c1',st1) -> CmdSt(ExecBlock(c1'),st1))
 
@@ -384,7 +388,7 @@ and step_cmd = function
         let txvalue  = int_of_expr e_value in
         let txargs = List.map (fun arg -> exprval_of_expr arg) e_args in
         if lookup_balance txfrom st < txvalue then 
-          failwith ("sender " ^ txfrom ^ " has not sufficient wei balance")
+          Reverted ("sender " ^ txfrom ^ " has not sufficient wei balance")
         else
         let from_state = 
           { (st.accounts txfrom) with balance = (st.accounts txfrom).balance - txvalue } in
@@ -421,7 +425,7 @@ and step_cmd = function
 
     | ExecProcCall(c) -> (match step_cmd (CmdSt(c,st)) with
       | St st -> St (pop_callstack st)
-      | Reverted -> Reverted
+      | Reverted s -> Reverted s
       | Returned _ -> St (pop_callstack st)
       | CmdSt(c1',st1) -> CmdSt(ExecProcCall(c1'),st1))
   )
@@ -491,79 +495,85 @@ let faucet (a : addr) (n : int) (st : sysstate) : sysstate =
 (* Executes steps of a transaction in a system state, returning a trace       *)
 (******************************************************************************)
 
-let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : sysstate =
+let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : (sysstate,string) result =
   if tx.txvalue < 0 then
-    failwith ("exec_tx: trying to send a negative amount of tokens")
+    Error ("trying to send a negative amount of tokens")
   else if not (exists_account st tx.txsender) then 
-    failwith ("exec_tx: sender address " ^ tx.txsender ^ " does not exist")
+    Error ("sender address " ^ tx.txsender ^ " does not exist")
   else if (st.accounts tx.txsender).balance < tx.txvalue then
-    failwith ("exec_tx: sender address " ^ tx.txsender ^ " has not sufficient balance")
+    Error ("sender address " ^ tx.txsender ^ " has not sufficient balance")
   else if not (exists_account st tx.txto) && tx.txfun <> "constructor" then
-    failwith ("exec_tx: to address " ^ tx.txto ^ " does not exist")
+    Error ("to address " ^ tx.txto ^ " does not exist")
   else if (exists_account st tx.txto) && tx.txfun = "constructor" then
-    failwith ("exec_tx: calling constructor in already deployed contract at address " ^ tx.txto) 
-  else 
-  let (sender_state : account_state) = 
-    { (st.accounts tx.txsender) with balance = (st.accounts tx.txsender).balance - tx.txvalue } in
-  (* sets state of to address. If not created yet, deploys the contract *)
-  let (to_state : account_state),(deploy : bool) = 
-    if exists_account st tx.txto 
-    then    { (st.accounts tx.txto) with balance = (st.accounts tx.txto).balance + tx.txvalue }, 
-            false (* deploy=false ==> cannot call constructor *) 
-    else (match tx.txargs with 
-      | Addr(code)::_ ->
-          (try let c = code |> parse_contract |> preprocess_contract in 
-            { balance=tx.txvalue; storage = init_storage c; code = Some c }, 
-            true (* deploy=true ==> must call constructor *)
-          with _ -> failwith ("exec_tx: syntax error in contract code: " ^ code))
-      | _ -> failwith "exec_tx: the first parameter of a deploy transaction must be the contract code") in
-  match to_state.code with
-  | None -> failwith "Called address is not a contract"
-  | Some src -> (match find_fun_in_contract src tx.txfun with
-    | None when (not deploy) -> failwith ("Contract at address " ^ tx.txto ^ " has no function named " ^ tx.txfun)
-    | None -> (* deploy a contract with no constructor (non-payable) *)
-      if tx.txvalue > 0 then 
-        failwith "The deployed contract should have a payable constructor if you send value"
-      else
-        { accounts = st.accounts 
-            |> bind tx.txsender sender_state
-            |> bind tx.txto to_state; 
-          callstack = st.callstack;
-          blocknum = 0;
-          active = tx.txto :: st.active }
-    | Some (Proc(_,xl,c,_,p,_))
-    | Some (Constr(xl,c,p)) ->
-        if not p && tx.txvalue>0 then 
-          failwith "exec_tx: sending ETH to a non-payable function"
-      else
-        let xl',vl' =
-          if deploy then match tx.txargs with 
-            _::al -> 
-            (VarT(AddrBT false,false),"msg.sender") :: xl,
-            Addr tx.txsender :: al (* TODO: why null value?? *)
-            | _ -> assert(false) (* should not happen *)
-          else
-            (VarT(AddrBT false,false),"msg.sender") :: (VarT(UintBT,false),"msg.value") :: xl,
-            Addr tx.txsender :: Uint tx.txvalue :: tx.txargs
-        in
-        let fr' = { callee = tx.txto; locals = [bind_fargs_aargs xl' vl'] } in
-        let st' = { accounts = st.accounts 
-                      |> bind tx.txsender sender_state
-                      |> bind tx.txto to_state; 
-                    callstack = fr' :: st.callstack;
-                    blocknum = 0;
-                    active = if deploy then tx.txto :: st.active else st.active } in
-        try (match exec_cmd n_steps c st' with
-          | St st'' -> st'' |> pop_callstack
-          | Reverted -> st  (* if the command reverts, the new state is st *)
-          | _ -> st (* exec_tx: execution of command not terminated (not enough gas?) => revert *)
-        )
-        with _ -> st (* exception thrown during execution of command => revert *)
-    ) 
+    Error ("calling constructor in already deployed contract at address " ^ tx.txto) 
+  else try (
+    let (sender_state : account_state) = 
+      { (st.accounts tx.txsender) with balance = (st.accounts tx.txsender).balance - tx.txvalue } in
+    (* sets state of to address. If not created yet, deploys the contract *)
+    let (to_state : account_state),(deploy : bool) = 
+      if exists_account st tx.txto 
+      then    { (st.accounts tx.txto) with balance = (st.accounts tx.txto).balance + tx.txvalue }, 
+              false (* deploy=false ==> cannot call constructor *) 
+      else (match tx.txargs with 
+        | Addr(code)::_ ->
+            (try let c = code |> parse_contract |> preprocess_contract in 
+              { balance=tx.txvalue; storage = init_storage c; code = Some c }, 
+              true (* deploy=true ==> must call constructor *)
+            with _ -> failwith ("exec_tx: syntax error in contract code: " ^ code))
+        | _ -> failwith "exec_tx: the first parameter of a deploy transaction must be the contract code")
+    in
+    match to_state.code with
+    | None -> Error "Called address is not a contract"
+    | Some src -> (match find_fun_in_contract src tx.txfun with
+      | None when (not deploy) -> 
+        Error ("Contract at address " ^ tx.txto ^ " has no function named " ^ tx.txfun)
+      | None -> (* deploy a contract with no constructor (non-payable) *)
+        if tx.txvalue > 0 then 
+          Error "The deployed contract should have a payable constructor if you send value"
+        else
+          Ok { accounts = st.accounts 
+              |> bind tx.txsender sender_state
+              |> bind tx.txto to_state; 
+            callstack = st.callstack;
+            blocknum = 0;
+            active = tx.txto :: st.active }
+      | Some (Proc(_,xl,c,_,p,_))
+      | Some (Constr(xl,c,p)) ->
+          if not p && tx.txvalue>0 then 
+            Error "sending ETH to a non-payable function"
+        else
+          let xl',vl' =
+            if deploy then match tx.txargs with 
+              _::al -> 
+              (VarT(AddrBT false,false),"msg.sender") :: xl,
+              Addr tx.txsender :: al
+              | _ -> assert(false) (* should never happen *)
+            else
+              (VarT(AddrBT false,false),"msg.sender") :: (VarT(UintBT,false),"msg.value") :: xl,
+              Addr tx.txsender :: Uint tx.txvalue :: tx.txargs
+          in
+          let fr' = { callee = tx.txto; locals = [bind_fargs_aargs xl' vl'] } in
+          let st' = { accounts = st.accounts 
+                        |> bind tx.txsender sender_state
+                        |> bind tx.txto to_state; 
+                      callstack = fr' :: st.callstack;
+                      blocknum = 0;
+                      active = if deploy then tx.txto :: st.active else st.active } in
+          try (match exec_cmd n_steps c st' with
+            | St st'' -> Ok (st'' |> pop_callstack)
+            | Reverted msg -> Error msg  (* if the command reverts, the new state is st *)
+            | _ -> Ok st (* exec_tx: execution of command not terminated (not enough gas?) => revert *)
+          )
+          with _ as ex -> Error (Printexc.to_string ex) (* exception thrown during execution of command => revert *)
+    ) (* match *)
+  ) (* try *)
+  with _ as ex -> Error (Printexc.to_string ex) 
 
 let exec_tx_list (n_steps : int) (txl : transaction list) (st : sysstate) = 
   List.fold_left 
-  (fun sti tx -> exec_tx n_steps tx sti)
+  (fun sti tx -> match exec_tx n_steps tx sti with 
+    | Ok sti' -> sti' 
+    | Error _ -> sti) 
   st
   txl
 
@@ -577,4 +587,6 @@ let deploy_contract (tx : transaction) (src : string) (st : sysstate) : sysstate
   else if tx.txfun <> "constructor" then
     failwith ("deploy_contract: deploying a contract must call the constructor")
   else let tx' = { tx with txargs = Addr(src) :: tx.txargs }
-  in exec_tx 1000 tx' st
+  in match exec_tx 1000 tx' st with
+    | Ok st' -> st'
+    | Error _ -> st

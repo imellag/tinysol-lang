@@ -34,7 +34,7 @@ type sysstate = {
 type exec_state = 
   | St of sysstate 
   | CmdSt of cmd * sysstate
-  | Reverted
+  | Reverted of string
   | Returned of exprval
 
 

@@ -36,11 +36,13 @@ let exec_cli_cmd (cc : cli_cmd) (st : sysstate) : sysstate = match cc with
   | Deploy(tx,filename) -> 
       let src = filename |> read_file 
       in st |> deploy_contract tx src
-  | CallFun tx -> st |> exec_tx 1000 tx
-  | Revert tx -> (try 
-      st |> exec_tx 1000 tx 
-      |> fun _ -> failwith ("test failed: transaction " ^ string_of_transaction tx ^ " should revert") 
-    with _ -> st)
+  | CallFun tx -> st |> exec_tx 1000 tx |> fun res -> (match res with
+      | Ok st -> st
+      | Error msg -> failwith msg)
+  | Revert tx -> 
+      st |> exec_tx 1000 tx |> fun res -> (match res with  
+        | Ok _ -> failwith ("revert violation: transaction " ^ string_of_transaction tx ^ " should revert") 
+        | Error _ -> st)
   | Assert(a,e) -> 
     (match eval_expr { st with callstack = [{callee = a; locals = []}] } e with
     | Bool true -> st

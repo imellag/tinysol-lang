@@ -7,7 +7,7 @@ contract C1 {
     bool b;
 
     constructor() payable { 
-        owner = msg.sender;
+        owner = msg.sender + 1;
     }
 
     function f1() public payable { 
@@ -24,5 +24,4 @@ contract C1 {
         if (address(this).balance < 8) b=false;
         else msg.sender.transfer(amt);
     }
-
 }

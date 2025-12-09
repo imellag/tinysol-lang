@@ -15,7 +15,7 @@ let test_exec_cmd (c,n_steps,var,exp_val) =
   |> fun t -> match t with
   | St st -> Option.get (lookup_var var st) = exp_val
   | CmdSt(_,st) -> Option.get (lookup_var var st) = exp_val
-  | Reverted -> false
+  | Reverted _ -> false
   | Returned _ -> false
 
 let%test "test_exec_cmd_1" = test_exec_cmd
