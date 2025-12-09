@@ -82,6 +82,13 @@ let lookup_var (x : ide) (st : sysstate) : exprval option =
     try Some (cs.storage x)
     with _ -> None
 
+let type_of_var x st = match Option.get (lookup_var x st) with
+   | Int _  -> IntBT
+   | Uint _ -> UintBT
+   | Bool _ -> BoolBT
+   | Addr _ -> AddrBT false (* check: dynamic typing? *)
+   | _ -> failwith "Maps are not handled by this function"
+  
 let lookup_balance (a : addr) (st : sysstate) : int =
   try (st.accounts a).balance
   with _ -> 0
@@ -200,12 +207,14 @@ let bind_fargs_aargs (xl : var_decl list) (vl : exprval list) : env =
   else 
   List.fold_left2 
   (fun acc x_decl v -> match (x_decl,v) with 
-   | ((VarT(IntBT,_),x), Int _)
-   | ((VarT(BoolBT,_),x), Bool _) 
-   | ((VarT(AddrBT _,_),x), Addr _) -> bind x v acc
-   | ((VarT(UintBT,_),x), Int n) when n>=0 -> bind x v acc
-   | ((MapT(_),_),_) -> failwith "Maps cannot be passed as function parameters"
-   | _ -> failwith "exec_tx: type mismatch between formal and actual arguments") 
+    | ((VarT(IntBT,_),x), Int _)
+    | ((VarT(UintBT,_),x), Uint _)
+    | ((VarT(BoolBT,_),x), Bool _) 
+    | ((VarT(AddrBT _,_),x), Addr _)          -> bind x v acc
+    | ((VarT(IntBT,_),x), Uint n)             -> bind x (Int n) acc
+    | ((VarT(UintBT,_),x), Int n) when n>=0   -> bind x (Uint n) acc
+    | ((MapT(_),_),_) -> failwith "Maps cannot be passed as function parameters"
+    | _ -> failwith "exec_tx: type mismatch between formal and actual arguments") 
   botenv 
   xl 
   vl 

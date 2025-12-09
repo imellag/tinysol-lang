@@ -12,7 +12,7 @@ exception NoRuleApplies
 let rec step_expr (e,st) = match e with
   | e when is_val e -> raise NoRuleApplies
 
-  | This -> (expr_of_exprval (Addr (List.hd(st.callstack)).callee), st)
+  | This -> ((AddrConst (List.hd(st.callstack)).callee), st)
 
   | BlockNum -> (IntConst st.blocknum, st)
 
@@ -27,7 +27,7 @@ let rec step_expr (e,st) = match e with
     let (e1', st') = step_expr (e1, st) in (MapR(e1',e2), st')
 
   | BalanceOf e when is_val e -> 
-    let b = addr_of_expr e in (IntConst (lookup_balance b st), st)
+    let b = addr_of_expr e in (UintVal (lookup_balance b st), st)
   | BalanceOf e -> 
     let (e', st') = step_expr (e, st) in (BalanceOf e', st')
 
@@ -52,32 +52,55 @@ let rec step_expr (e,st) = match e with
   | Or(e1,e2) -> 
     let (e1', st') = step_expr (e1, st) in (Or(e1',e2), st')
 
-  | Add(e1,e2) when is_val e1 && is_val e2 ->
-    let (n1,n2) = int_of_expr e1,int_of_expr e2 in 
-    (IntConst (n1+n2), st)         
+  | Add(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
+    | (IntConst n1, IntConst n2) -> (IntConst (n1+n2), st)
+    | (IntConst n1, UintVal n2) when n1>=0 -> (UintVal (n1+n2), st)
+    | (UintVal n1, IntConst n2) when n2>=0 -> (UintVal (n1+n2), st)
+    | (IntConst n1, IntVal n2) -> (IntVal (n1+n2), st)
+    | (IntVal n1, IntConst n2) -> (IntVal (n1+n2), st)
+    | (UintVal n1, UintVal n2) -> (UintVal (n1+n2), st)
+    | (IntVal n1, IntVal n2)   -> (IntVal (n1+n2), st)
+    | _ -> raise (TypeError "Add: type mismatch between the operands"))
   | Add(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Add(e1,e2'), st')
   | Add(e1,e2) -> 
     let (e1', st') = step_expr (e1, st) in (Add(e1',e2), st')
 
-  | Sub(e1,e2) when is_val e1 && is_val e2 ->
-    let (n1,n2) = int_of_expr e1,int_of_expr e2 in 
-    (IntConst (n1-n2), st)         
+  | Sub(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
+    | (IntConst n1, IntConst n2) -> (IntConst (n1-n2), st)
+    | (IntConst n1, UintVal n2) when n1-n2>=0 -> (UintVal (n1-n2), st)
+    | (UintVal n1, IntConst n2) when n1-n2>=0 -> (UintVal (n1-n2), st)
+    | (IntConst n1, IntVal n2) -> (IntVal (n1-n2), st)
+    | (IntVal n1, IntConst n2) -> (IntVal (n1-n2), st)
+    | (UintVal n1, UintVal n2) when n1-n2>=0 -> (UintVal (n1-n2), st)
+    | (IntVal n1, IntVal n2) -> (IntVal (n1-n2), st)
+    | _ -> raise (TypeError "Sub: type mismatch between the operands"))
   | Sub(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Sub(e1,e2'), st')
   | Sub(e1,e2) -> 
     let (e1', st') = step_expr (e1, st) in (Sub(e1',e2), st')
 
-  | Mul(e1,e2) when is_val e1 && is_val e2 ->
-    let (n1,n2) = int_of_expr e1,int_of_expr e2 in 
-    (IntConst (n1*n2), st)         
+  | Mul(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
+    | (IntConst n1, IntConst n2) -> (IntConst (n1*n2), st)
+    | (IntConst n1, UintVal n2) when n1>=0 -> (UintVal (n1*n2), st)
+    | (UintVal n1, IntConst n2) when n2>=0 -> (UintVal (n1*n2), st)
+    | (IntConst n1, IntVal n2) -> (IntVal (n1*n2), st)
+    | (IntVal n1, IntConst n2) -> (IntVal (n1*n2), st)
+    | (UintVal n1, UintVal n2) -> (UintVal (n1*n2), st)
+    | (IntVal n1, IntVal n2) -> (IntVal (n1*n2), st)
+    | _ -> raise (TypeError "Mul: type mismatch between the operands"))
   | Mul(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Mul(e1,e2'), st')
   | Mul(e1,e2) -> 
     let (e1', st') = step_expr (e1, st) in (Mul(e1',e2), st')
 
   | Eq(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
-      | (IntConst n1,IntConst n2) -> (BoolConst(n1=n2), st)
+      | (IntConst n1,IntConst n2)
+      | (IntConst n1,IntVal n2)
+      | (IntVal n1,IntConst n2)
+      | (IntVal n1,IntVal n2)               -> (BoolConst(n1=n2), st)
+      | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1=n2), st)
+      | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1=n2), st)
       | (AddrConst a1,AddrConst a2) -> (BoolConst(a1=a2), st)
       | (BoolConst b1,BoolConst b2) -> (BoolConst(b1=b2), st)
       | _ -> raise (TypeError "Eq"))
@@ -87,7 +110,12 @@ let rec step_expr (e,st) = match e with
     let (e1', st') = step_expr (e1, st) in (Eq(e1',e2), st')
 
   | Neq(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
-      | (IntConst n1,IntConst n2) -> (BoolConst(n1<>n2), st)
+      | (IntConst n1,IntConst n2)
+      | (IntConst n1,IntVal n2)
+      | (IntVal n1,IntConst n2)
+      | (IntVal n1,IntVal n2)               -> (BoolConst(n1<>n2), st)
+      | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1<>n2), st)
+      | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1<>n2), st)
       | (AddrConst a1,AddrConst a2) -> (BoolConst(a1<>a2), st)
       | (BoolConst b1,BoolConst b2) -> (BoolConst(b1<>b2), st)
       | _ -> raise (TypeError "Neq"))
@@ -97,7 +125,12 @@ let rec step_expr (e,st) = match e with
     let (e1', st') = step_expr (e1, st) in (Neq(e1',e2), st')
 
   | Leq(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
-      | (IntConst n1,IntConst n2) -> (BoolConst(n1<=n2), st)
+      | (IntConst n1,IntConst n2)
+      | (IntConst n1,IntVal n2)
+      | (IntVal n1,IntConst n2)
+      | (IntVal n1,IntVal n2)               -> (BoolConst(n1<=n2), st)
+      | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1<=n2), st)
+      | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1<=n2), st)
       | _ -> raise (TypeError "Leq"))
   | Leq(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Leq(e1,e2'), st')
@@ -105,7 +138,12 @@ let rec step_expr (e,st) = match e with
     let (e1', st') = step_expr (e1, st) in (Leq(e1',e2), st')
 
   | Lt(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
-      | (IntConst n1,IntConst n2) -> (BoolConst(n1<n2), st)
+      | (IntConst n1,IntConst n2)
+      | (IntConst n1,IntVal n2)
+      | (IntVal n1,IntConst n2)
+      | (IntVal n1,IntVal n2)               -> (BoolConst(n1<n2), st)
+      | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1<n2), st)
+      | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1<n2), st)
       | _ -> raise (TypeError "Leq"))
   | Lt(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Lt(e1,e2'), st')
@@ -113,7 +151,12 @@ let rec step_expr (e,st) = match e with
     let (e1', st') = step_expr (e1, st) in (Lt(e1',e2), st')
 
   | Geq(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
-      | (IntConst n1,IntConst n2) -> (BoolConst(n1>=n2), st)
+      | (IntConst n1,IntConst n2)
+      | (IntConst n1,IntVal n2)
+      | (IntVal n1,IntConst n2)
+      | (IntVal n1,IntVal n2)               -> (BoolConst(n1>=n2), st)
+      | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1>=n2), st)
+      | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1>=n2), st)
       | _ -> raise (TypeError "Leq"))
   | Geq(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Geq(e1,e2'), st')
@@ -121,7 +164,12 @@ let rec step_expr (e,st) = match e with
     let (e1', st') = step_expr (e1, st) in (Geq(e1',e2), st')
 
   | Gt(e1,e2) when is_val e1 && is_val e2 -> (match e1,e2 with
-      | (IntConst n1,IntConst n2) -> (BoolConst(n1>n2), st)
+      | (IntConst n1,IntConst n2)
+      | (IntConst n1,IntVal n2)
+      | (IntVal n1,IntConst n2)
+      | (IntVal n1,IntVal n2)               -> (BoolConst(n1>n2), st)
+      | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1>n2), st)
+      | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1>n2), st)
       | _ -> raise (TypeError "Leq"))
   | Gt(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Gt(e1,e2'), st')
@@ -133,13 +181,19 @@ let rec step_expr (e,st) = match e with
   | IfE(e1,e2,e3) -> 
     let (e1', st') = step_expr (e1, st) in (IfE(e1',e2,e3), st')    
 
-  | IntCast(e) when is_val e -> 
-      let n = int_of_expr e in (IntConst n, st)
+  | IntCast(e) when is_val e -> (match e with
+    | IntConst n -> (IntConst n, st)
+    | IntVal n
+    | UintVal n  -> (IntVal n, st)
+    | _ -> raise (TypeError "Cast of a non-integer expression"))
   | IntCast(e) -> 
     let (e', st') = step_expr (e, st) in (IntCast(e'), st')    
 
-  | UintCast(e) when is_val e -> 
-      let n = int_of_expr e in (IntConst n, st)
+  | UintCast(e) when is_val e -> (match e with
+    | IntConst n when n>=0 -> (IntConst n, st)
+    | IntVal n when n>=0   -> (UintVal n, st)
+    | UintVal n            -> (UintVal n, st)
+    | _ -> raise (TypeError "Cast of a non-uint expression"))
   | UintCast(e) -> 
     let (e', st') = step_expr (e, st) in (UintCast(e'), st')    
 
@@ -153,13 +207,13 @@ let rec step_expr (e,st) = match e with
   | PayableCast(e) -> 
     let (e', st') = step_expr (e, st) in (PayableCast(e'), st')    
 
-
   | EnumOpt(x,o) -> (match lookup_enum_option st x o with
     | Some n -> (IntConst n, st)
     | None -> failwith "Enum lookup failed (bug in typechecking?)")
 
   | EnumCast(x,e) when is_val e -> (match exprval_of_expr e with
-      | Int n -> (match reverse_lookup_enum_option st x n with
+      | Int n 
+      | Uint n -> (match reverse_lookup_enum_option st x n with
         | Some _ -> (IntConst n, st)
         | None -> raise (TypeError "EnumCast"))
       | _ -> raise (TypeError "EnumCast: expression is not an Int")
@@ -185,8 +239,8 @@ let rec step_expr (e,st) = match e with
     (* setup new callstack frame *)
     let xl = get_var_decls_from_fun fdecl in
     let xl',vl' =
-      (VarT(AddrBT false,false),"msg.sender") :: (VarT(IntBT,false),"msg.value") :: xl,
-      Addr txfrom :: Int txvalue :: txargs
+      (VarT(AddrBT false,false),"msg.sender") :: (VarT(UintBT,false),"msg.value") :: xl,
+      Addr txfrom :: Uint txvalue :: txargs
     in
     let fr' = { callee = txto; locals = [bind_fargs_aargs xl' vl'] } in 
     let st' = { accounts = st.accounts 
@@ -240,8 +294,9 @@ and step_cmd = function
 
     | Skip -> St st
 
-    | Assign(x,e) when is_val e -> St (update_var st x (exprval_of_expr e))
-
+    | Assign(x,e) when is_val e -> 
+        St (update_var st x (exprval_of_expr_typechecked e (type_of_var x st)))
+        
     | Assign(x,e) -> 
       let (e', st') = step_expr (e, st) in CmdSt(Assign(x,e'), st')
 
@@ -302,11 +357,12 @@ and step_cmd = function
     | Block(vdl,c) ->
         let r' = List.fold_left (fun acc vd ->
           match vd with
-            | VarT(IntBT,_),x  
-            | VarT(UintBT,_),x -> acc |> bind x (Int 0)
-            | VarT(BoolBT,_),x -> acc |> bind x (Bool false)
-            | VarT(AddrBT _,_),x -> acc |> bind x (Addr "0")
-            | VarT(CustomBT _,_),x -> acc |> bind x (Int 0)
+            | VarT(IntBT,_),x  -> acc       |> bind x (Int 0) 
+            | VarT(UintBT,_),x -> acc       |> bind x (Uint 0)
+            | VarT(BoolBT,_),x -> acc       |> bind x (Bool false)
+            | VarT(AddrBT _,_),x -> acc     |> bind x (Addr "0")
+            | VarT(EnumBT _,_),x -> acc     |> bind x (Uint 0)
+            | VarT(CustomBT _,_),x -> acc   |> bind x (Addr "0") (* TODO: contract?? *)
             | MapT(_),_ -> failwith "mappings cannot be used in local declarations" 
         ) botenv vdl in
         let fr,frl = (List.hd st.callstack),(List.tl st.callstack) in
@@ -338,8 +394,8 @@ and step_cmd = function
         (* setup new stack frame TODO *)
         let xl = get_var_decls_from_fun fdecl in
         let xl',vl' =
-          (VarT(AddrBT false,false),"msg.sender") :: (VarT(IntBT,false),"msg.value") :: xl,
-          Addr txfrom :: Int txvalue :: txargs
+          (VarT(AddrBT false,false),"msg.sender") :: (VarT(UintBT,false),"msg.value") :: xl,
+          Addr txfrom :: Uint txvalue :: txargs
         in
         let fr' = { callee = txto; locals = [bind_fargs_aargs xl' vl'] } in
         let st' = { accounts = st.accounts 
@@ -377,11 +433,12 @@ let rec eval_expr (st : sysstate) (e : expr) : exprval =
   else let (e', st') = step_expr (e, st) in eval_expr st' e'  
 
 let default_value = function 
-  IntBT  
-| UintBT -> Int 0
-| BoolBT -> Bool false
-| AddrBT _ -> Addr "0"
-| CustomBT _ -> Int 0
+| IntBT       -> Int 0
+| UintBT      -> Uint 0
+| BoolBT      -> Bool false
+| AddrBT _    -> Addr "0"
+| CustomBT _  -> Addr "0"
+| EnumBT _    -> Uint 0
 
 let init_storage (Contract(_,_,vdl,_)) : ide -> exprval =
   List.fold_left (fun acc vd -> 
@@ -455,7 +512,7 @@ let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : sysstate =
             false (* deploy=false ==> cannot call constructor *) 
     else (match tx.txargs with 
       | Addr(code)::_ ->
-          (try let c = code |> parse_contract |> blockify_contract in 
+          (try let c = code |> parse_contract |> preprocess_contract in 
             { balance=tx.txvalue; storage = init_storage c; code = Some c }, 
             true (* deploy=true ==> must call constructor *)
           with _ -> failwith ("exec_tx: syntax error in contract code: " ^ code))
@@ -486,8 +543,8 @@ let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : sysstate =
             Addr tx.txsender :: al (* TODO: why null value?? *)
             | _ -> assert(false) (* should not happen *)
           else
-            (VarT(AddrBT false,false),"msg.sender") :: (VarT(IntBT,false),"msg.value") :: xl,
-            Addr tx.txsender :: Int tx.txvalue :: tx.txargs
+            (VarT(AddrBT false,false),"msg.sender") :: (VarT(UintBT,false),"msg.value") :: xl,
+            Addr tx.txsender :: Uint tx.txvalue :: tx.txargs
         in
         let fr' = { callee = tx.txto; locals = [bind_fargs_aargs xl' vl'] } in
         let st' = { accounts = st.accounts 

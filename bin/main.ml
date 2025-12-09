@@ -13,7 +13,7 @@ match Array.length(Sys.argv) with
     | _ -> print_newline())
 (* exec_cmd *)
 | 3 when Sys.argv.(1)="exec_cmd" -> (match read_line() with
-    | Some s when s<>"" -> s |> parse_cmd |> blockify_cmd
+    | Some s when s<>"" -> s |> parse_cmd |> blockify_cmd (* TODO: enumify? *)
       |> fun c -> trace_cmd (int_of_string Sys.argv.(2)) c 
       (push_callstack {callee="0xC"; locals=[];} init_sysstate)
       |> string_of_trace |> print_string

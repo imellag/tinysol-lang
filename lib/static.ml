@@ -40,6 +40,7 @@ let exprtype_of_decltype = function
   | UintBT -> UintET
   | BoolBT -> BoolET
   | AddrBT(b)  -> AddrET(b)
+  | EnumBT _   -> UintET
   | CustomBT _ -> UintET (* TODO: be more precise *)
 
 let lookup_type (x : ide) (vdl : var_decl list) : exprtype option =
@@ -84,6 +85,8 @@ let subtype t0 t1 = match t1 with
 let rec typecheck_expr (edl : enum_decl list) (vdl : var_decl list) = function
   | BoolConst b -> BoolConstET b
   | IntConst n -> IntConstET n
+  | IntVal _
+  | UintVal _ -> assert(false) (* runtime only *)
   | AddrConst _ -> AddrET(false)
   | This -> AddrET(false) (* TODO: make more coherent with Solidity *)
   | BlockNum -> UintET

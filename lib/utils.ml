@@ -8,17 +8,43 @@ open Cli_ast
 let is_val = function
   | BoolConst _ 
   | IntConst _
+  | IntVal _
+  | UintVal _
   | AddrConst _ -> true
   | _ -> false
 
 let exprval_of_expr = function
-  | BoolConst b -> (Bool b)
-  | IntConst n  -> (Int n)
-  | AddrConst s -> (Addr s)
+  | BoolConst b   -> (Bool b)
+  | IntConst n when n>=0 -> (Uint n)
+  | IntConst n    -> (Int n)
+  | IntVal n      -> (Int n)
+  | UintVal n     -> (Uint n)
+  | AddrConst s   -> (Addr s)
   | _ -> failwith ("expression is not a value")
 
+let exprval_of_expr_typechecked (e : expr) (t : base_type)= match e,t with
+  | BoolConst b,  BoolBT            -> Bool b
+  | IntConst n,   IntBT             -> Int n
+  | IntConst n,   UintBT when n>=0  -> Uint n
+  | IntVal n,     IntBT             -> Int n
+  | UintVal n,    UintBT            -> Uint n
+  | AddrConst s,  AddrBT _          -> Addr s
+  | AddrConst s,  CustomBT _        -> Addr s
+  | _ -> failwith ("type mismatch")
+
+let val_type_match (e : expr) (v : exprval) = match e,v with  
+  | BoolConst _,  Bool _ 
+  | IntConst _,   Int _
+  | IntVal _,     Int _
+  | UintVal _,    Uint _
+  | AddrConst _,  Addr _ -> true
+  | IntConst n,   Uint _ when n>=0 -> true
+  | _ -> failwith ("type mismatch")
+
 let int_of_expr e = match e with 
-  | IntConst n  -> n
+  | IntConst n 
+  | IntVal n
+  | UintVal n -> n
   | _ -> failwith "IntConst was expected"
 
 let bool_of_expr e = match e with 
@@ -31,15 +57,17 @@ let addr_of_expr e = match e with
 
 let expr_of_exprval = function
   | Bool b -> BoolConst b
-  | Int n -> IntConst n
+  | Int n  -> IntVal n
+  | Uint n -> UintVal n
   | Addr b -> AddrConst b
   | Map _ -> failwith "step_expr: wrong type checking of map?"
 
 let addr_of_exprval v = match v with 
   | Addr a -> a
-  | Bool _ -> failwith "value has type Bool but an Addr was expected"
-  | Int _ -> failwith "value has type Int but an Addr was expected"
-  | Map _ -> failwith "value has type Map but an Addr was expected"
+  | Bool _ -> failwith "value has type bool but an address was expected"
+  | Int _ -> failwith "value has type int but an address was expected"
+  | Uint _ -> failwith "value has type uint but an address was expected"
+  | Map _ -> failwith "value has type map but an address was expected"
 
 
 (******************************************************************************)
@@ -154,3 +182,39 @@ let blockify_fun = function
 
 let blockify_contract (Contract(c,el,vdl,fdl)) =
   Contract(c,el,vdl,List.map blockify_fun fdl)
+
+(******************************************************************************)
+(*                    Transform custom types into enum types                  *)
+(******************************************************************************)
+
+let exists_enum (enums : enum_decl list) (name : ide) = 
+  List.exists (fun (Enum(x,_)) -> x=name) enums
+
+let enumify_base_type (enums : enum_decl list) (bt : base_type) : base_type = match bt with
+  | CustomBT en when exists_enum enums en -> EnumBT en
+  | _ as other -> other
+
+let enumify_decls (enums : enum_decl list) (vdl : var_decl list) : var_decl list = List.map (
+  fun (vt,x) -> match vt with
+    | VarT(bt,im)   -> VarT(enumify_base_type enums bt,im),x 
+    | MapT(bt1,bt2) -> MapT(enumify_base_type enums bt1, enumify_base_type enums bt2),x
+  ) 
+  vdl 
+
+let rec enumify_cmd enums = function
+  | Block(vdl,c) -> Block(enumify_decls enums vdl, enumify_cmd enums c) 
+  | _ as c -> c
+
+let enumify_fun enums = function
+  | Constr (al,c,p) -> Constr (enumify_decls enums al,enumify_cmd enums c,p)
+  | Proc (f,al,c,v,p,r) -> Proc(f,enumify_decls enums al,enumify_cmd enums c,v,p,r)
+
+let enumify_contract (Contract(c,enums,vdl,fdl)) =
+  Contract(c,enums,enumify_decls enums vdl,List.map (fun fd -> enumify_fun enums fd) fdl)
+
+
+(******************************************************************************)
+(*                                  Preprocess contract                       *)
+(******************************************************************************)
+
+let preprocess_contract c = c |> blockify_contract |> enumify_contract 

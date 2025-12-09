@@ -12,6 +12,8 @@ let rec union l1 l2 = match l1 with
 let rec vars_of_expr = function
   | BoolConst _
   | IntConst _
+  | IntVal _
+  | UintVal _ 
   | AddrConst _
   | This 
   | BlockNum 
@@ -67,7 +69,8 @@ let vars_of_contract (Contract(_,_,vdl,_)) : ide list =
 
 let string_of_exprval = function
     Bool b -> string_of_bool b
-  | Int n  -> string_of_int n
+  | Int n
+  | Uint n -> string_of_int n
   | Addr s -> s
   | Map _  -> "<map>" (* do not expand map *) 
 
@@ -79,7 +82,9 @@ let string_of_args = List.fold_left (fun s a -> s ^ (if s<>"" then "," else "") 
 
 let rec string_of_expr = function
   | BoolConst b -> if b then "true" else "false"
-  | IntConst n -> string_of_int n
+  | IntConst n 
+  | IntVal n
+  | UintVal n -> string_of_int n
   | AddrConst a -> "\"" ^ a ^ "\""
   | This -> "this"
   | BlockNum -> "block.num"
@@ -142,6 +147,7 @@ and string_of_base_type = function
 | BoolBT -> "bool"
 | AddrBT p -> "address" ^ (if p then " payable" else "")
 | CustomBT x -> x
+| EnumBT x -> x
 
 and string_of_var_type = function
 | VarT(t,i) -> string_of_base_type t ^ (if i then " immutable" else "")

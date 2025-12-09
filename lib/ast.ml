@@ -1,3 +1,7 @@
+(******************************************************************************)
+(*                                     Contracts                              *)
+(******************************************************************************)
+
 (* variable/function/contract identifier *)
 type ide = string
 
@@ -9,6 +13,8 @@ type addr = string
 type expr =
   | BoolConst of bool
   | IntConst of int
+  | IntVal of int       (* runtime only: integer expressions *)
+  | UintVal of int      (* runtime only: unsigned integer expressions *)
   | AddrConst of addr
   | BlockNum
   | This
@@ -61,7 +67,8 @@ and base_type =
   | UintBT          (* uint *) 
   | BoolBT          (* bool *)
   | AddrBT of bool  (* address (the bool b in AddrBT(b) tells if the address is payable (b=1) or not (b=0) *)
-  | CustomBT of ide (* custom base type (contract or enum) *)
+  | CustomBT of ide (* custom type: specialized after preprocessing in EnumBT of ContractBT *)
+  | EnumBT of ide
 
 (* Variable types, consisting of:
   - a base type with a bool i telling whether the variable is mutable (i=false) or immutable (i=true)
@@ -111,6 +118,7 @@ type contract = Contract of ide * enum_decl list * var_decl list * fun_decl list
 type exprval = 
   | Bool of bool 
   | Int of int
+  | Uint of int
   | Addr of string
   | Map of (exprval -> exprval)
 

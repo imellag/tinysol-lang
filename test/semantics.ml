@@ -10,7 +10,7 @@ open TinysolLib.Main
 let test_exec_cmd (c,n_steps,var,exp_val) =
   c
   |> parse_cmd
-  |> blockify_cmd
+  |> blockify_cmd (* TODO: enumify? *)
   |> fun c -> exec_cmd n_steps c (push_callstack {callee="0xC"; locals=[];} init_sysstate)
   |> fun t -> match t with
   | St st -> Option.get (lookup_var var st) = exp_val
@@ -67,13 +67,13 @@ let%test "test_exec_cmd_16" = test_exec_cmd
   ("{ int x; uint y; y=5; x = (y<=(x!=0)?5:4)?2:3; skip; }", 9, "x", Int 3)  
 
 let%test "test_exec_cmd_17" = test_exec_cmd
-  ("{ int x; uint y1; int y0; y1=5; y0=8; x = (true)?y1:y0; skip; }", 6, "x", Int 5)  
+  ("{ int x; uint y1; int y0; y1=5; y0=8; x = (true)?int(y1):y0; skip; }", 7, "x", Int 5)  
 
 let%test "test_exec_cmd_18" = test_exec_cmd
-  ("{ uint x; uint y; y = 6; x = (y>5)?uint(y):1 + 3; skip; }", 8, "x", Int 6) 
+  ("{ uint x; uint y; y = 6; x = (y>5)?uint(y):1 + 3; skip; }", 8, "x", Uint 6) 
 
 let%test "test_exec_cmd_19" = test_exec_cmd
-  ("{ uint x; x=1; { int x; x=x+1; { int x; x=x+2; } x=x+3; } x=x+4; skip; }", 16, "x", Int 5) 
+  ("{ uint x; x=1; { int x; x=x+1; { int x; x=x+2; } x=x+3; } x=x+4; skip; }", 16, "x", Uint 5) 
 
 (********************************************************************************
  test_exec_tx : 
@@ -223,6 +223,22 @@ let%test "test_arith_5" = test_exec_tx
   ["0xA:0xC.f(3)"; "0xA:0xC.f(0)"] 
   ["x==2"]
 
+let%test "test_arith_6" = test_exec_tx
+  "contract C {
+      uint x;
+      function f(uint y,uint z) public { x = (y-1)+z; }
+  }"
+  ["0xA:0xC.f(1,2)"] 
+  ["x==2"]
+
+let%test "test_arith_7" = test_exec_tx
+  "contract C {
+      uint x;
+      function f(uint y,uint z) public { x = (y-1)+z; }
+  }"
+  ["0xA:0xC.f(0,3)"] 
+  ["x==0"]
+
 let%test "test_mapping_1" = test_exec_tx
   "contract C {
       mapping (uint => uint) m;
@@ -243,8 +259,8 @@ let%test "test_mapping_2" = test_exec_tx
 
 let%test "test_mapping_3" = test_exec_tx
   "contract C {
-      mapping (uint => uint) m;
-      uint x;
+      mapping (int => int) m;
+      int x;
       function f(int k, int v) public { m[k] = v; }
       function g(int k) public { x = m[k]; }
   }"
@@ -255,8 +271,8 @@ let%test "test_mapping_4" = test_exec_tx
   "contract C {
       mapping (uint => uint) m1;
       mapping (uint => uint) m2;
-      function f(int k, int v) public { m1[k] = v; }
-      function g(int k, int v) public { m2[m1[k]] = m1[m2[0]+v]; }
+      function f(uint k, uint v) public { m1[k] = v; }
+      function g(uint k, uint v) public { m2[m1[k]] = m1[m2[0]+v]; }
   }"
   ["0xA:0xC.f(1,2)"; "0xA:0xC.g(1,1)"] 
   ["m2[2]==2"]
@@ -264,7 +280,7 @@ let%test "test_mapping_4" = test_exec_tx
 let%test "test_mapping_5" = test_exec_tx
   "contract C {
       mapping (uint => uint) m;
-      function f(int k) public { m[m[k]] = m[k]+1; }
+      function f(uint k) public { m[m[k]] = m[k]+1; }
   }"
   ["0xA:0xC.f(0)"; "0xA:0xC.f(0)"] 
   ["m[0]==1"; "m[1]==2"]
@@ -328,7 +344,7 @@ let%test "test_block_2" = test_exec_tx
     uint z;
     constructor() { x=100; y=200; }
     function f(uint y) public { 
-      uint x; x=1; z=x; { int x; x=x+1; { int x; x=x+2; } x=x+3; z=z+x; } x=x+4; y=x;
+      uint x; x=1; z=x; { int x; x=x+1; { int x; x=x+2; } x=x+3; z=z+uint(x); } x=x+4; y=x;
     }
   }"
   ["0xA:0xC.f(1)"] 
@@ -456,8 +472,8 @@ let%test "test_fun_4" = test_exec_fun
   [("0xC","y==8 && this.balance==1"); ("0xD","x==9 && this.balance==99")]
 
 let%test "test_fun_5" = test_exec_fun
-  "contract C { uint y; function f(int z) public payable returns(int) { y=z+1; return(z+1+msg.value);} }"
-  "contract D { C c; uint x; constructor() payable { c = \"0xC\"; } function g() public { x = c.f{value:2}(1); } }"
+  "contract C { uint y; function f(int z) public payable returns(int) { y=uint(z)+1; return(z+1+int(msg.value));} }"
+  "contract D { C c; uint x; constructor() payable { c = \"0xC\"; } function g() public { x = uint(c.f{value:2}(1)); } }"
   ["0xA:0xD.g()"] 
   [("0xC","y==2 && this.balance==2"); ("0xD","x==4 && this.balance==98")]
 
@@ -472,7 +488,7 @@ let%test "test_fun_6" = test_exec_fun
 
 let%test "test_fun_7" = test_exec_fun
   "contract C { uint y; constructor() payable { } 
-      function f(int x1, int x2, int x3) public returns(int) { y = x1+x2+x3; return(2*y); } 
+      function f(uint x1, uint x2, uint x3) public returns(uint) { y = x1+x2+x3; return(2*y); } 
   }"
   "contract D { C c; uint x; constructor() payable { c = \"0xC\"; } 
       function g() public { x = c.f(1+1,1+1+1,1+1+1+1); }
@@ -481,21 +497,21 @@ let%test "test_fun_7" = test_exec_fun
   [("0xC","y==9"); ("0xD","x==18")]
 
 let%test "test_fun_8" = test_exec_fun
-  "contract C { uint y; constructor() payable { y=1; } 
+  "contract C { int y; constructor() payable { y=1; } 
       function f(int y) public returns(int) { return(2*y); } 
   }"
-  "contract D { C c; uint x; constructor() payable { c = \"0xC\"; } 
+  "contract D { C c; int x; constructor() payable { c = \"0xC\"; } 
       function g() public { x = c.f(2); }
   }"
   ["0xA:0xD.g()"] 
   [("0xC","y==1"); ("0xD","x==4")]
 
 let%test "test_fun_9" = test_exec_fun
-  "contract C { uint y; constructor() payable { y=1; } 
+  "contract C { int y; constructor() payable { y=1; } 
       function f(int z) public returns(int) { if (z>0) return(z+y); else return(-z+y); } 
   }"
   "contract D { C c; uint x; constructor() payable { c = \"0xC\"; } 
-      function g() public { x = c.f(-2); }
+      function g() public { x = uint(c.f(-2)); }
   }"
   ["0xA:0xD.g()"] 
   [("0xC","y==1"); ("0xD","x==3")]
@@ -512,10 +528,10 @@ let%test "test_fun_10" = test_exec_fun
   [("0xD","x==2")]
 
 let%test "test_fun_11" = test_exec_fun
-  "contract C { uint y; constructor() payable { y=5; } 
+  "contract C { int y; constructor() payable { y=5; } 
       function f() public returns(int) { if (msg.sender==\"0xD\") { int z; z=y; y=2; return(z); } else return(-1); } 
   }"
-  "contract D { C c; uint x; constructor() payable { c = \"0xC\"; } 
+  "contract D { C c; int x; constructor() payable { c = \"0xC\"; } 
       function g() public { x = c.f(); }
   }"
   ["0xA:0xD.g()"] 
@@ -526,16 +542,16 @@ let%test "test_fun_12" = test_exec_fun
       function f() public { x=7; } 
   }"
   "contract D { C c; uint y; constructor() payable { c = \"0xC\"; } 
-      function g() public { { int x; x=1; c.f(); y=x; } }
+      function g() public { { uint x; x=1; c.f(); y=x; } }
   }"
   ["0xA:0xD.g()"] 
   [("0xC","x==7"); ("0xD","y==1")]
 
 let%test "test_fun_13" = test_exec_fun
   "contract C { D d; uint x; constructor() payable { d = \"0xD\"; x=5; } 
-      function f() public { x=d.h(); } 
+      function f() public { x = d.h(); } 
   }"
-  "contract D { C c; uint y; constructor() payable { c = \"0xC\"; } 
+  "contract D { C c; int y; constructor() payable { c = \"0xC\"; } 
       function g() public { { int x; x=1; c.f(); y=x; } }
       function h() public returns(uint) { return 7; }
   }"
@@ -546,7 +562,7 @@ let%test "test_fun_14" = test_exec_fun
   "contract C { D d; uint x; constructor() payable { d = \"0xD\"; x=5; } 
       function f() public { x=d.h(); } 
   }"
-  "contract D { C c; uint y; constructor() payable { c = \"0xC\"; } 
+  "contract D { C c; int y; constructor() payable { c = \"0xC\"; } 
       function g() public { { int x; x=1; c.f(); y=x; } }
       function h() public returns(uint) { return this.k()+1; }
       function k() public returns(uint) { return 6; }
@@ -556,7 +572,7 @@ let%test "test_fun_14" = test_exec_fun
 
 let%test "test_fun_15" = test_exec_fun
   "contract C { 
-      function fact(int n) public returns(uint) { return (n==0) ? 1 : (n * this.fact(n-1)); } 
+      function fact(uint n) public returns(uint) { return (n==0) ? 1 : (n * this.fact(n-1)); } 
   }"
   "contract D { C c; uint y; constructor() payable { c = \"0xC\"; } 
       function g(int x) public { y = c.fact(x); }
