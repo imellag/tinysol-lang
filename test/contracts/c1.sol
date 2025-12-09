@@ -7,7 +7,7 @@ contract C1 {
     bool b;
 
     constructor() payable { 
-        owner = msg.sender + 1;
+        owner = msg.sender;
     }
 
     function f1() public payable { 

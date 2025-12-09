@@ -98,6 +98,7 @@ let rec step_expr (e,st) = match e with
       | (IntConst n1,IntConst n2)
       | (IntConst n1,IntVal n2)
       | (IntVal n1,IntConst n2)
+      | (UintVal n1,UintVal n2)
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1=n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1=n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1=n2), st)
@@ -113,6 +114,7 @@ let rec step_expr (e,st) = match e with
       | (IntConst n1,IntConst n2)
       | (IntConst n1,IntVal n2)
       | (IntVal n1,IntConst n2)
+      | (UintVal n1,UintVal n2)
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1<>n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1<>n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1<>n2), st)
@@ -128,6 +130,7 @@ let rec step_expr (e,st) = match e with
       | (IntConst n1,IntConst n2)
       | (IntConst n1,IntVal n2)
       | (IntVal n1,IntConst n2)
+      | (UintVal n1,UintVal n2)
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1<=n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1<=n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1<=n2), st)
@@ -141,10 +144,11 @@ let rec step_expr (e,st) = match e with
       | (IntConst n1,IntConst n2)
       | (IntConst n1,IntVal n2)
       | (IntVal n1,IntConst n2)
+      | (UintVal n1,UintVal n2)
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1<n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1<n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1<n2), st)
-      | _ -> raise (TypeError "Leq"))
+      | _ -> raise (TypeError "Lt"))
   | Lt(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Lt(e1,e2'), st')
   | Lt(e1,e2) -> 
@@ -154,10 +158,11 @@ let rec step_expr (e,st) = match e with
       | (IntConst n1,IntConst n2)
       | (IntConst n1,IntVal n2)
       | (IntVal n1,IntConst n2)
+      | (UintVal n1,UintVal n2)
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1>=n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1>=n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1>=n2), st)
-      | _ -> raise (TypeError "Leq"))
+      | _ -> raise (TypeError "Geq"))
   | Geq(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Geq(e1,e2'), st')
   | Geq(e1,e2) -> 
@@ -167,10 +172,11 @@ let rec step_expr (e,st) = match e with
       | (IntConst n1,IntConst n2)
       | (IntConst n1,IntVal n2)
       | (IntVal n1,IntConst n2)
+      | (UintVal n1,UintVal n2)
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1>n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1>n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1>n2), st)
-      | _ -> raise (TypeError "Leq"))
+      | _ -> raise (TypeError "Gt"))
   | Gt(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Gt(e1,e2'), st')
   | Gt(e1,e2) -> 
