@@ -651,3 +651,52 @@ let%test "test_typecheck_funcall_1" = test_typecheck
     function g() public { bool b; b = this.f(); }
   }"
   false
+
+let%test "test_typecheck_visibility_1" = test_typecheck
+  "contract C {
+    uint external x;
+    function g() public { x += 1; }
+  }"
+  false
+
+let%test "test_typecheck_visibility_2" = try test_typecheck
+  "contract C {
+    uint external x;
+    function f() public { x += 1; }
+  }" false (* state variables cannot have external visibility *)
+  with _ -> true (* it is also ok if the contract is not parsable *)
+
+let%test "test_typecheck_receive_1" = test_typecheck
+  "contract C {
+    receive() external payable { }
+  }"
+  true
+
+let%test "test_typecheck_receive_2" = test_typecheck
+  "contract C {
+    receive() public payable { }
+  }"
+  false
+
+let%test "test_typecheck_receive_3" = test_typecheck
+  "contract C {
+    receive() external { }
+  }"
+  false
+
+let%test "test_typecheck_receive_4" = test_typecheck
+  "contract C {
+    receive(int x) external payable { }
+  }"
+  false
+
+(* internal calls are not implemented yet *)
+(* 
+let%test "test_typecheck_visibility_2" = test_typecheck
+  "contract C {
+    uint x;
+    function f() external { x += 1; }
+    function g() public { f(); }
+  }"
+  false (* f is declared as external, so it cannot be invoked through an internal call *)
+*)
