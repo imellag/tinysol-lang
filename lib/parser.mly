@@ -342,7 +342,7 @@ transaction:
 cli_cmd:
   | tx = transaction { CallFun tx }
   | FAUCET; a = ADDRLIT; n = CONST { Faucet(a, int_of_string n) }
-  | DEPLOY; tx = transaction; filename = STRING { Deploy(tx,filename) }
+  | DEPLOY; tx = transaction; contract_name = STRING; filename = STRING { Deploy(tx,contract_name,filename) }
   | ASSERT; a = ADDRLIT; e = expr; EOF; { Assert(a,e) }
   | ASSERT; LASTREVERTED { LastReverted }
   | ASSERT; NOT; LASTREVERTED { NotLastReverted }

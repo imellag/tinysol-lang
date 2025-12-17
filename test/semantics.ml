@@ -350,6 +350,70 @@ let%test "test_block_2" = test_exec_tx
   ["0xA:0xC.f(1)"] 
   ["x==100 && y==200 && z==5"]
 
+let test_exec_constructor (src: string) (value: int) (args: exprval list) (els : string list) =
+  init_sysstate
+  |> faucet "0xA" 100
+  |> deploy_contract { txsender="0xA"; txto="0xC"; txfun="constructor"; txargs=args; txvalue=value; } src 
+  |> fun st -> List.map (fun x -> x |> parse_expr |> eval_expr 
+      { st with callstack = [{ callee = "0xC"; locals = []}] } ) els 
+  |> List.for_all (fun v -> v = Bool true)
+
+let%test "test_constructor_1" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor() { x+=1; } 
+  }"
+  0 [] 
+  ["x==1"]
+
+let%test "test_constructor_2" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor() { require(msg.sender == \"0xA\"); x = 1; } 
+  }"
+  0 [] 
+  ["x==1"]
+
+let%test "test_constructor_3" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor() payable { if (msg.sender != \"0xA\") x = 1; else x = 3; } 
+  }"
+  1 [] 
+  ["x==3"]
+
+let%test "test_constructor_4" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor() payable { require(msg.value >= 0); x = 1; } 
+  }"
+  1 [] 
+  ["x==1"]
+
+let%test "test_constructor_5" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor() payable { x += msg.value; } 
+  }"
+  3 [] 
+  ["x==3"]
+
+let%test "test_constructor_6" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor(uint _x) payable { x = _x; } 
+  }"
+  0 [Uint 3] 
+  ["x==3"]
+
+let%test "test_constructor_7" = test_exec_constructor
+  "contract C { 
+    uint x; 
+    constructor(uint y, int z) payable { x = y + uint(z); } 
+  }"
+  0 [Uint 2; Int 1] 
+  ["x==3"]
+
 
 (********************************************************************************
  test_exec_fun : 

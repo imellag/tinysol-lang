@@ -1,6 +1,6 @@
 open TinysolLib
 open Ast
 open Utils
-open Static
+open Typechecker
 open Sysstate
 open Main

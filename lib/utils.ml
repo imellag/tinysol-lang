@@ -53,6 +53,8 @@ let bool_of_expr e = match e with
 
 let addr_of_expr e = match e with 
   | AddrConst a -> a
+  | IntConst n 
+  | UintVal n -> "0x" ^ string_of_int n
   | _ -> failwith "AddrConst was expected"
 
 let expr_of_exprval = function
@@ -90,17 +92,190 @@ let find_index f l =
     if b then Some i else None
 
 (******************************************************************************)
-(*                                   File utilities                           *)
+(*                     Read file, and output it to a string                   *)
 (******************************************************************************)
-
-(* read file, and output it to a string *)
 
 let read_file filename =
   let ch = open_in filename in
   let s = really_input_string ch (in_channel_length ch) in
   close_in ch; s
 
-(* read line from standard input, and output it to a string *)
+
+
+(******************************************************************************)
+(*                         Read given contract from file                      *)
+(******************************************************************************)
+
+let read_contract_in_file contract_name filename =
+  let content = read_file filename in
+  let len = String.length content in
+
+  let is_space = function ' ' | '\t' | '\n' | '\r' -> true | _ -> false in
+
+  (* skip whitespace *)
+  let rec skip_spaces i =
+    if i < len && is_space content.[i] then skip_spaces (i + 1) else i
+  in
+
+  (* skip comments *)
+  let rec skip_comments i =
+    if i + 1 < len && content.[i] = '/' && content.[i + 1] = '/' then
+      let rec skip_line j =
+        if j < len && content.[j] <> '\n' then skip_line (j + 1) else j
+      in
+      skip_comments (skip_line (i + 2))
+    else if i + 1 < len && content.[i] = '/' && content.[i + 1] = '*' then
+      let rec skip_block j =
+        if j + 1 >= len then failwith "Unterminated block comment"
+        else if content.[j] = '*' && content.[j + 1] = '/' then j + 2
+        else skip_block (j + 1)
+      in
+      skip_comments (skip_block (i + 2))
+    else
+      i
+  in
+
+  (* look for: contract <name> *)
+  let rec find_contract i =
+    let i = skip_comments (skip_spaces i) in
+    if i + 8 >= len then
+      failwith ("Contract " ^ contract_name ^ " not found")
+    else if
+      String.sub content i 8 = "contract"
+      && is_space content.[i + 8]
+    then
+      let j = skip_spaces (i + 8) in
+      let k = j + String.length contract_name in
+      if k <= len && String.sub content j (String.length contract_name) = contract_name
+      then i
+      else find_contract (i + 1)
+    else
+      find_contract (i + 1)
+  in
+
+  let start = find_contract 0 in
+
+  (* find opening brace *)
+  let rec find_open i =
+    let i = skip_comments i in
+    if i >= len then failwith "Missing '{' in contract"
+    else if content.[i] = '{' then i
+    else find_open (i + 1)
+  in
+
+  let open_brace = find_open start in
+
+  (* match braces *)
+  let rec find_close i depth =
+    if i >= len then failwith "Unbalanced braces"
+    else
+      match content.[i] with
+      | '{' -> find_close (i + 1) (depth + 1)
+      | '}' ->
+          if depth = 1 then i
+          else find_close (i + 1) (depth - 1)
+      | _ -> find_close (i + 1) depth
+  in
+
+  let close_brace = find_close (open_brace + 1) 1 in
+  String.sub content start (close_brace - start + 1)
+
+
+(******************************************************************************)
+(* Get the list of contract names in a file                                   *)
+(******************************************************************************)
+
+let contract_names_in_file filename =
+  let s = read_file filename in
+  let len = String.length s in
+
+  let is_space = function
+    | ' ' | '\t' | '\n' | '\r' -> true
+    | _ -> false
+  in
+
+  let is_ident_char = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
+    | _ -> false
+  in
+
+  let is_ident_start = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
+    | _ -> false
+  in
+
+  (* skip // and /* */ comments *)
+  let rec skip_comments i =
+    if i + 1 < len && s.[i] = '/' && s.[i + 1] = '/' then
+      let rec skip_line j =
+        if j < len && s.[j] <> '\n' then skip_line (j + 1) else j
+      in
+      skip_comments (skip_line (i + 2))
+    else if i + 1 < len && s.[i] = '/' && s.[i + 1] = '*' then
+      let rec skip_block j =
+        if j + 1 >= len then failwith "Unterminated block comment"
+        else if s.[j] = '*' && s.[j + 1] = '/' then j + 2
+        else skip_block (j + 1)
+      in
+      skip_comments (skip_block (i + 2))
+    else
+      i
+  in
+
+  (* skip string literals *)
+  let rec skip_string i =
+    if i >= len then failwith "Unterminated string literal"
+    else if s.[i] = '"' then i + 1
+    else skip_string (i + 1)
+  in
+
+  let rec skip_spaces i =
+    if i < len && is_space s.[i] then skip_spaces (i + 1) else i
+  in
+
+  let read_ident i =
+    let rec aux j =
+      if j < len && is_ident_char s.[j] then aux (j + 1) else j
+    in
+    let j = aux i in
+    String.sub s i (j - i), j
+  in
+
+  let rec scan i acc =
+    if i >= len then
+      List.rev acc
+    else
+      let i = skip_comments i in
+      if i >= len then List.rev acc else
+      match s.[i] with
+      | '"' ->
+          scan (skip_string (i + 1)) acc
+      | _ ->
+          (* check for keyword "contract" with proper boundaries *)
+          if i + 8 < len
+             && s.[i] = 'c'
+             && String.sub s i 8 = "contract"
+             && (i = 0 || not (is_ident_char s.[i - 1]))
+             && i + 8 < len
+             && is_space s.[i + 8]
+          then
+            let j = skip_spaces (i + 8) in
+            if j < len && is_ident_start s.[j] then
+              let name, k = read_ident j in
+              scan k (name :: acc)
+            else
+              scan (i + 1) acc
+          else
+            scan (i + 1) acc
+  in
+
+  scan 0 []
+
+
+
+(******************************************************************************)
+(* Read line from standard input, and output it to a string                   *)
+(******************************************************************************)
 
 let read_line () =
   try Some(read_line())

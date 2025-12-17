@@ -2,6 +2,7 @@ open Ast
 open Sysstate
 open Utils
 
+
 (******************************************************************************)
 (*                      Small-step semantics of expressions                   *)
 (******************************************************************************)
@@ -102,8 +103,8 @@ let rec step_expr (e,st) = match e with
       | (IntVal n1,IntVal n2)               -> (BoolConst(n1=n2), st)
       | (UintVal n1,IntConst n2) when n2>=0 -> (BoolConst(n1=n2), st)
       | (IntConst n1,UintVal n2) when n1>=0 -> (BoolConst(n1=n2), st)
-      | (AddrConst a1,AddrConst a2) -> (BoolConst(a1=a2), st)
-      | (BoolConst b1,BoolConst b2) -> (BoolConst(b1=b2), st)
+      | (AddrConst a1,AddrConst a2)         -> (BoolConst(a1=a2), st)
+      | (BoolConst b1,BoolConst b2)         -> (BoolConst(b1=b2), st)
       | _ -> raise (TypeError "Eq"))
   | Eq(e1,e2) when is_val e1 ->
     let (e2', st') = step_expr (e2, st) in (Eq(e1,e2'), st')
@@ -224,9 +225,15 @@ let rec step_expr (e,st) = match e with
         | None -> raise (TypeError "EnumCast"))
       | _ -> raise (TypeError "EnumCast: expression is not an Int")
       )
-
   | EnumCast(x,e) -> 
     let (e', st') = step_expr (e, st) in (EnumCast(x,e'), st')    
+
+  | ContractCast(_,e) when is_val e -> (match exprval_of_expr e with
+      | Addr a -> (AddrConst a, st)   
+      | _ -> raise (TypeError "ContractCast: expression is not an Addr")
+      )
+  | ContractCast(x,e) -> 
+    let (e', st') = step_expr (e, st) in (ContractCast(x,e'), st')    
 
   | FunCall(e_to,f,e_value,e_args) when is_val e_to && is_val e_value && List.for_all is_val e_args ->  
     (* retrieve function declaration *)
@@ -457,10 +464,10 @@ let default_var_value = function
 | IntBT       -> Int 0
 | UintBT      -> Uint 0
 | BoolBT      -> Bool false
-| AddrBT _    -> Addr "0"
+| AddrBT _    -> Addr "0x0"
 | UnknownBT _ -> assert(false) (* should not happen after contract preprocessing *)
 | EnumBT _    -> Uint 0
-| ContractBT _-> Addr "0"
+| ContractBT _-> Addr "0x0"
 
 (* initialized the contract storage upon deployment *)
 let init_storage (Contract(_,_,vdl,_)) : ide -> exprval =
@@ -563,14 +570,18 @@ let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : (sysstate,string
             active = tx.txto :: st.active }
       | Some (Proc(_,xl,c,_,m,_))
       | Some (Constr(xl,c,m)) ->
-          if m<>Payable && tx.txvalue>0 then 
+        if m<>Payable && tx.txvalue>0 then 
             Error "sending ETH to a non-payable function"
         else
           let xl',vl' =
             if deploy then match tx.txargs with 
               _::al -> 
-              { ty=VarT(AddrBT false); name="msg.sender"; } :: xl,
-              Addr tx.txsender :: al
+              { ty=VarT(AddrBT false); name="msg.sender"; } ::
+              { ty=VarT(UintBT); name="msg.value"; } :: xl
+              ,
+              Addr tx.txsender :: 
+              Uint tx.txvalue :: 
+              al
               | _ -> assert(false) (* should never happen *)
             else
               { ty=VarT(AddrBT false); name="msg.sender"; } :: 

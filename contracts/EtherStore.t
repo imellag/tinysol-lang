@@ -1,8 +1,8 @@
 faucet 0xA 100
 faucet 0xM 1   // Adversary
 
-deploy 0xA:0xC() "test/contracts/EtherStore.sol"
-deploy 0xA:0xD() "test/contracts/EtherStoreAttack.sol"
+deploy 0xA:0xC() "EtherStore" "contracts/EtherStore.sol"
+deploy 0xA:0xD() "EtherStoreAttack" "contracts/EtherStore.sol"
 
 0xA:0xC.deposit{value:100}()
 assert 0xA this.balance==0

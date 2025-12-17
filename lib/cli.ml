@@ -11,7 +11,7 @@ open Prettyprint
 
 let string_of_cli_cmd = function 
   | Faucet(a,n) -> "faucet " ^ a ^ " " ^ string_of_int n
-  | Deploy(tx,filename) -> "deploy " ^ string_of_transaction tx ^ " " ^ filename
+  | Deploy(tx,contract_name,filename) -> "deploy " ^ string_of_transaction tx ^ " " ^ contract_name ^ " " ^ filename
   | CallFun tx -> string_of_transaction tx
   | Revert tx -> "revert " ^ string_of_transaction tx
   | Assert(a,e) -> "assert " ^ a ^ " " ^ string_of_expr e
@@ -38,8 +38,8 @@ let is_assert = function
 
 let exec_cli_cmd (cc : cli_cmd) (lastReverted : bool) (st : sysstate) : sysstate = match cc with
   | Faucet(a,n) -> faucet a n st
-  | Deploy(tx,filename) -> 
-      let src = filename |> read_file 
+  | Deploy(tx,contract_name,filename) -> 
+      let src = read_contract_in_file contract_name filename 
       in st |> deploy_contract tx src
   | CallFun tx -> st |> exec_tx 1000 tx |> fun res -> (match res with
       | Ok st -> st

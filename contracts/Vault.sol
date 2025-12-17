@@ -13,8 +13,7 @@ contract Vault {
     uint amount;
     States state;
     
-    // constructor (address payable recovery_, uint wait_time_) payable {
-    constructor (address recovery_, uint wait_time_) payable {
+    constructor (address payable recovery_, uint wait_time_) payable {
     	require(msg.sender != recovery_);
         require(wait_time_ > 0);
         owner = msg.sender;

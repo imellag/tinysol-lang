@@ -21,8 +21,8 @@ contract PriceBet {
     // join allows a player to join the bet. This requires the player to deposit an amount of ETH equal to the initial pot.
     function join() public payable {
         require(msg.value == initial_pot);
-        require(player == "0x0");
-        require(msg.sender != "0x0");
+        require(player == address(0));
+        require(msg.sender != address(0));
 
         // we require that join can only be performed before the deadline
         require(block.number < deadline);
@@ -44,10 +44,30 @@ contract PriceBet {
         player.transfer(address(this).balance);
     }
 
-    // // timeout can be called by anyone after the deadline, and transfers the whole contract balance to the owner
+    // timeout can be called by anyone after the deadline, and transfers the whole contract balance to the owner
     function timeout() public {
         require(block.number >= deadline);
 
         owner.transfer(address(this).balance);
+    }
+}
+
+
+contract Oracle {
+    address owner;
+    uint exchange_rate;
+
+    constructor(uint init_rate) {
+        owner = msg.sender;
+        exchange_rate = init_rate;
+    }
+
+    function get_exchange_rate() public view returns(uint) {
+        return exchange_rate;
+    }
+
+    function set_exchange_rate(uint new_rate) public {
+        require(msg.sender == owner);
+        exchange_rate = new_rate;
     }
 }

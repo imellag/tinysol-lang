@@ -30,10 +30,15 @@ match Array.length(Sys.argv) with
     | Some s when s<>"" -> s |> parse_contract |> preprocess_contract |> typecheck_contract 
              |> string_of_typecheck_result |> print_endline 
     | _ -> print_newline())
-| 3 when Sys.argv.(1)="typecheck" -> (match read_file Sys.argv.(2) with
-      "" -> print_newline()
-    | s -> s |> parse_contract |> preprocess_contract |> typecheck_contract 
-             |> string_of_typecheck_result |> print_endline) 
+| 3 when Sys.argv.(1)="typecheck" -> (
+    contract_names_in_file Sys.argv.(2)
+    |>
+    List.map (fun cn -> read_contract_in_file cn Sys.argv.(2))
+    |> 
+    List.iter (fun s -> 
+      s |> parse_contract |> preprocess_contract |> typecheck_contract 
+        |> string_of_typecheck_result |> print_endline)
+    ) 
 (* unittest *)
 | 3 when Sys.argv.(1)="unittest" ->
   Sys.argv.(2) |> read_lines 
