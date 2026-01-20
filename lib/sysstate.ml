@@ -218,3 +218,22 @@ let bind_fargs_aargs (xl : local_var_decl list) (vl : exprval list) : env =
   botenv 
   xl 
   vl 
+
+let get_state_var_names (Contract(_, _, vdl, _)) : ide list =
+  List.map (fun (vd : var_decl) -> vd.name) vdl
+
+let rec cmd_modifies_state_var (state_vars : ide list) (c : cmd) : bool = match c with
+  | Assign(x, _) -> List.mem x state_vars  (* only state vars count *)
+  | MapW(x, _, _) -> List.mem x state_vars (* mappings are state vars *)
+  | Send(_, _) -> true
+  | Seq(c1, c2) -> cmd_modifies_state_var state_vars c1 || cmd_modifies_state_var state_vars c2
+  | If(_, c1, c2) -> cmd_modifies_state_var state_vars c1 || cmd_modifies_state_var state_vars c2
+  | Block(_, c) -> cmd_modifies_state_var state_vars c
+  | ExecBlock(c) -> cmd_modifies_state_var state_vars c
+  | ProcCall(_, _, _, _) -> true (* TODO check view/pure only *)
+  | ExecProcCall(c) -> cmd_modifies_state_var state_vars c
+  | _ -> false
+
+let get_mutability_from_fun = function
+  | Proc(_, _, _, _, m, _) -> m
+  | Constr(_, _, m) -> m
