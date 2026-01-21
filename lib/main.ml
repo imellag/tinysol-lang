@@ -253,7 +253,7 @@ let rec step_expr (e,st) = match e with
     let state_vars = get_state_var_names contract in
     let m = get_mutability_from_fun fdecl in
     let c = get_cmd_from_fun fdecl in
-    if m = View && cmd_modifies_state_var state_vars c then
+    if m = View && cmd_modifies_state_var state_vars contract c then
       failwith "view function cannot modify state variables"
     else
     (* setup new callstack frame *)
@@ -428,7 +428,7 @@ and step_cmd = function
         let state_vars = get_state_var_names contract in
         let m = get_mutability_from_fun fdecl in
         let c = get_cmd_from_fun fdecl in
-        if m = View && cmd_modifies_state_var state_vars c then
+        if m = View && cmd_modifies_state_var state_vars contract c then
           Reverted "view function cannot modify state variables"
         else
         (* setup new stack frame TODO *)
@@ -587,7 +587,7 @@ let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : (sysstate,string
         let state_vars = get_state_var_names src in
         if m<>Payable && tx.txvalue>0 then 
             Error "sending ETH to a non-payable function"
-        else if m = View && cmd_modifies_state_var state_vars c then
+        else if m = View && cmd_modifies_state_var state_vars src c then
             Error "view function cannot modify state variables"
         else
           let xl',vl' =
