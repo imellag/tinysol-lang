@@ -75,6 +75,8 @@ exception EnumOptionNotFound of ide * ide * ide
 exception EnumDupName of ide
 exception EnumDupOption of ide * ide
 exception MapInLocalDecl of ide * ide
+exception ReturnArityError of ide * int * int
+exception ExternalStateVarError of ide
 
 let logfun f s = "(" ^ f ^ ")\t" ^ s 
 
@@ -95,6 +97,8 @@ let string_of_typecheck_error = function
 | EnumDupName x -> "enum " ^ x ^ " is declared multiple times"
 | EnumDupOption (x,o) -> "enum option " ^ o ^ " is declared multiple times in enum " ^ x
 | MapInLocalDecl (f,x) -> logfun f "mapping " ^ x ^ " not admitted in local declaration" 
+| ReturnArityError (f,given,expected) -> logfun f ("return has " ^ string_of_int given ^ " value(s) but " ^ string_of_int expected ^ " expected")
+| ExternalStateVarError x -> "state variable " ^ x ^ " cannot have external visibility"
 | ex -> Printexc.to_string ex
 
 let exprtype_of_decltype = function
@@ -123,6 +127,15 @@ let merge_var_decls (vdl : var_decl list) (lvdl : local_var_decl list) : all_var
 (* adds a list of local variables to all_var_decls *)
 let push_local_decls ((vdl: var_decl list),(old_lvdl : local_var_decl list)) new_lvdl = 
   (vdl , new_lvdl @ old_lvdl)  
+
+let lookup_fun (fname : ide) (fdl : fun_decl list) : (local_var_decl list * base_type list * visibility_t * fun_mutability_t) option =
+  fdl
+  |> List.fold_left
+    (fun acc fd -> match fd with
+      | Constr(al,_,_) -> if fname = "constructor" then Some(al,[],Public,NonPayable) else acc
+      | Proc(f,al,_,vis,mut,ret_types) -> if fname = f then Some(al,ret_types,vis,mut) else acc
+    )
+    None
 
 let lookup_type (x : ide) (avdl : all_var_decls) : exprtype option =
   if x="msg.sender" then Some (AddrET false)
@@ -160,7 +173,16 @@ let no_dup_var_decls vdl =
   vdl 
   |> List.map (fun (vd : var_decl) -> vd.name) 
   |> dup
-  |> fun res -> match res with None -> Ok () | Some x -> Error ([MultipleDecl x])  
+  |> fun res -> match res with None -> Ok () | Some x -> Error ([MultipleDecl x])
+
+let no_external_state_vars (vdl : var_decl list) : typecheck_result =
+  vdl
+  |> List.fold_left (fun acc vd ->
+    match vd.visibility with
+    | External ->
+        acc >> Error [ ExternalStateVarError vd.name ]
+    | _ -> acc
+  ) (Ok ())  
 
 let no_dup_local_var_decls f vdl = 
   vdl 
@@ -378,7 +400,36 @@ let rec typecheck_expr (f : ide) (edl : enum_decl list) vdl = function
       | err -> err)
 
   | UnknownCast(_) -> assert(false) (* should not happen after preprocessing *)
-  | FunCall(_) -> failwith "TODO: FunCall"
+  | FunCall(e_to, _, e_val, args) ->
+      (* Typecheck the receiver *)
+      (match typecheck_expr f edl vdl e_to with
+       | Error log -> Error log
+       | Ok(AddrET _) ->
+           (* Typecheck the value *)
+           (match typecheck_expr f edl vdl e_val with
+            | Error log -> Error log
+            | Ok(t_val) when subtype t_val UintET ->
+                (* Typecheck all arguments *)
+                let args_result = List.fold_left
+                  (fun acc arg -> match acc with
+                    | Error log -> Error log
+                    | Ok () ->
+                        (match typecheck_expr f edl vdl arg with
+                         | Ok _ -> Ok ()
+                         | Error log -> Error log
+                        )
+                  )
+                  (Ok ())
+                  args
+                in
+                (match args_result with
+                 | Error log -> Error log
+                 | Ok () -> Ok UintET
+                )
+            | Ok(t_val) -> Error [TypeError (f, e_val, t_val, UintET)]
+           )
+       | Ok(t_to) -> Error [TypeError (f, e_to, t_to, AddrET(false))]
+      )
 
   | ExecFunCall(_) -> assert(false) (* this should not happen at static time *)
 
@@ -392,7 +443,7 @@ let typecheck_local_decls (f : ide) (vdl : local_var_decl list) = List.fold_left
   (Ok ())
   vdl
 
-let rec typecheck_cmd (f : ide) (edl : enum_decl list) (vdl : all_var_decls) = function 
+let rec typecheck_cmd (f : ide) (edl : enum_decl list) (fdl : fun_decl list) (vdl : all_var_decls) (ret_types : base_type list) = function 
     | Skip -> Ok ()
 
     | Assign(x,e) -> 
@@ -404,7 +455,43 @@ let rec typecheck_cmd (f : ide) (edl : enum_decl list) (vdl : all_var_decls) = f
           | res1,res2 -> typeckeck_result_from_expr_result (res1 >>+ res2)
         )
 
-    | Decons(_) -> failwith "TODO: multiple return values"
+    | Decons (vars, FunCall (e_to, fname, e_val, args)) ->
+        (* Typecheck the function call *)  
+        (match typecheck_expr f edl vdl (FunCall(e_to, fname, e_val, args)) with
+         | Error log -> Error log
+         | Ok _ -> 
+             (* Lookup the function to get its return types *)
+             (match lookup_fun fname fdl with
+              | None -> Error [UndeclaredVar (f, fname)]
+              | Some (_, fun_ret_types, _, _) ->
+                  let given = List.length vars in
+                  let expected = List.length fun_ret_types in
+                  if given <> expected then
+                    Error [ReturnArityError (f, given, expected)]
+                  else
+                    (* Check type compatibility for each component *)
+                    List.fold_left2
+                      (fun acc var_opt ret_type ->
+                        acc >>
+                        match var_opt with
+                        | None -> Ok ()
+                        | Some x ->
+                            (match typecheck_expr f edl vdl (Var x) with
+                             | Error log -> Error log
+                             | Ok tx ->
+                                 let tr = exprtype_of_decltype ret_type in
+                                 if subtype tr tx then Ok ()
+                                 else Error [TypeError (f, Var x, tr, tx)]
+                            )
+                      )
+                      (Ok ())
+                      vars
+                      fun_ret_types
+             )
+        )
+    | Decons (_, e) ->
+        (* If the second element is not a FunCall, it's an error *)
+        Error [NotMapError (f, e)]
 
     | MapW(x,ek,ev) ->  
         (match typecheck_expr f edl vdl (Var x),
@@ -418,17 +505,17 @@ let rec typecheck_cmd (f : ide) (edl : enum_decl list) (vdl : all_var_decls) = f
           | res1,res2,res3 -> typeckeck_result_from_expr_result (res1 >>+ res2 >>+ res3))
 
     | Seq(c1,c2) -> 
-        typecheck_cmd f edl vdl c1
+        typecheck_cmd f edl fdl vdl ret_types c1
         >>
-        typecheck_cmd f edl vdl c2
+        typecheck_cmd f edl fdl vdl ret_types c2
 
     | If(e,c1,c2) -> (match typecheck_expr f edl vdl e with
-          | Ok(BoolConstET true)  -> typecheck_cmd f edl vdl c1
-          | Ok(BoolConstET false) -> typecheck_cmd f edl vdl c2
+          | Ok(BoolConstET true)  -> typecheck_cmd f edl fdl vdl ret_types c1
+          | Ok(BoolConstET false) -> typecheck_cmd f edl fdl vdl ret_types c2
           | Ok(BoolET) -> 
-              typecheck_cmd f edl vdl c1
+              typecheck_cmd f edl fdl vdl ret_types c1
               >>
-              typecheck_cmd f edl vdl c2
+              typecheck_cmd f edl fdl vdl ret_types c2
           | Ok(te) -> Error [TypeError (f,e,te,BoolET)]
           | res -> typeckeck_result_from_expr_result res)
 
@@ -451,32 +538,64 @@ let rec typecheck_cmd (f : ide) (edl : enum_decl list) (vdl : all_var_decls) = f
         typecheck_local_decls f lvdl
         >>
         let vdl' = push_local_decls vdl lvdl in
-        typecheck_cmd f edl vdl' c
+        typecheck_cmd f edl fdl vdl' ret_types c
 
     | ExecBlock(_) -> assert(false) (* should not happen at static time *)
 
     | Decl(_) -> assert(false) (* should not happen after blockify *)
 
-    | ProcCall(_) -> failwith "TODO: ProcCall"
+    | ProcCall(e_to, _, e_val, args) ->
+        (* Typecheck the receiver address *)
+        (match typecheck_expr f edl vdl e_to with
+         | Error log -> Error log
+         | Ok(AddrET _) ->
+             (* Typecheck the value transfer amount *)
+             (match typecheck_expr f edl vdl e_val with
+              | Error log -> Error log
+              | Ok(t_val) when subtype t_val UintET ->
+                  (* Typecheck the arguments *)
+                  List.fold_left
+                    (fun acc arg -> acc >> 
+                      (match typecheck_expr f edl vdl arg with
+                       | Ok _ -> Ok ()
+                       | Error log -> Error log
+                      )
+                    )
+                    (Ok ())
+                    args
+              | Ok(t_val) -> Error [TypeError (f, e_val, t_val, UintET)]
+             )
+         | Ok(t_to) -> Error [TypeError (f, e_to, t_to, AddrET(false))]
+        )
 
     | ExecProcCall(_) -> assert(false) (* should not happen at static time *)
 
-    | Return(_) -> failwith "TODO: Return"
+    | Return(elist) ->
+        let given = List.length elist in
+        let expected = List.length ret_types in
+        if given <> expected then Error [ReturnArityError (f,given,expected)]
+        else
+          List.fold_left2 (fun acc e rt ->
+            acc >> (match typecheck_expr f edl vdl e with
+              | Ok(te) -> let expected_et = exprtype_of_decltype rt in if subtype te expected_et then Ok() else Error [TypeError (f,e,te,expected_et)]
+              | Error log -> Error log
+            )
+          ) (Ok ()) elist ret_types
 
 
-let typecheck_fun (edl : enum_decl list) (vdl : var_decl list) = function
+let typecheck_fun (edl : enum_decl list) (fdl : fun_decl list) (vdl : var_decl list) = function
   | Constr (al,c,_) ->
       no_dup_local_var_decls "constructor" al
       >>
       typecheck_local_decls "constructor" al
       >> 
-      typecheck_cmd "constructor" edl (merge_var_decls vdl al) c
-  | Proc (f,al,c,_,__,_) ->
+      typecheck_cmd "constructor" edl fdl (merge_var_decls vdl al) [] c
+  | Proc (f,al,c,_,__,ret_types) ->
       no_dup_local_var_decls f al
       >> 
       typecheck_local_decls f al
       >>
-      typecheck_cmd f edl (merge_var_decls vdl al) c
+      typecheck_cmd f edl fdl (merge_var_decls vdl al) ret_types c
 
 (* dup_first: finds the first duplicate in a list *)
 let rec dup_first (l : 'a list) : 'a option = match l with 
@@ -507,10 +626,13 @@ let typecheck_contract (Contract(_,edl,vdl,fdl)) : typecheck_result =
   (* no multiply declared state variables *)
   no_dup_var_decls vdl
   >>
+  (* no external state variables *)
+  no_external_state_vars vdl
+  >>
   (* no multiply declared functions *)
   no_dup_fun_decls fdl
   >>
-  List.fold_left (fun acc fd -> acc >> typecheck_fun edl vdl fd) (Ok ()) fdl  
+  List.fold_left (fun acc fd -> acc >> typecheck_fun edl fdl vdl fd) (Ok ()) fdl  
 
 
 let string_of_typecheck_result = function

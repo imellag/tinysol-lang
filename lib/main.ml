@@ -375,9 +375,15 @@ and step_cmd = function
       let (e', st') = step_expr (e, st) in CmdSt(Req(e'), st')
 
     | Return(el) when List.for_all is_val el -> Returned (List.map exprval_of_expr el) 
-    | Return(el) -> (match el with
-      | [e] -> let (e', st') = step_expr (e, st) in CmdSt(Return([e']), st')
-      | _ -> failwith "TODO: multiple return values not supported")
+    | Return(el) -> 
+        let rec step_until_all_vals = function
+          | [] -> CmdSt(Return(el), st)
+          | e::rest when is_val e -> step_until_all_vals rest
+          | e::rest -> 
+              let (e', st') = step_expr (e, st) in 
+              CmdSt(Return(e' :: rest), st')
+        in
+        step_until_all_vals el
     
     | Block(vdl,c) ->
         let r' = List.fold_left (fun acc vd ->
