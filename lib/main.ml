@@ -41,14 +41,15 @@ let rec step_expr (e,st) = match e with
     let (b1,b2) = bool_of_expr e1,bool_of_expr e2 in 
     (BoolConst (b1 && b2), st)         
   | And(e1,e2) when is_val e1 ->
-    let (e2', st') = step_expr (e2, st) in (And(e1,e2'), st')
+   if (bool_of_expr e1) = false then (BoolConst false, st) else
+    let (e2', st') = step_expr(e2, st) in (And(e1,e2'), st')
   | And(e1,e2) -> 
     let (e1', st') = step_expr (e1, st) in (And(e1',e2), st')
 
   | Or(e1,e2) when is_val e1 && is_val e2 ->
     let (b1,b2) = bool_of_expr e1,bool_of_expr e2 in 
     (BoolConst(b1 || b2), st)
-  | Or(e1,e2) when is_val e1 ->
+  | Or(e1,e2) when is_val e1 -> if (bool_of_expr e1) = true then (BoolConst true, st) else
     let (e2', st') = step_expr (e2, st) in (Or(e1,e2'), st')
   | Or(e1,e2) -> 
     let (e1', st') = step_expr (e1, st) in (Or(e1',e2), st')
