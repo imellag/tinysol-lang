@@ -77,6 +77,9 @@ exception EnumDupOption of ide * ide
 exception MapInLocalDecl of ide * ide
 exception ReturnArityError of ide * int * int
 exception ExternalStateVarError of ide
+exception ReceiveNotExternal of ide
+exception ReceiveNotPayable of ide
+exception ReceiveHasParameters of ide
 
 let logfun f s = "(" ^ f ^ ")\t" ^ s 
 
@@ -99,6 +102,9 @@ let string_of_typecheck_error = function
 | MapInLocalDecl (f,x) -> logfun f "mapping " ^ x ^ " not admitted in local declaration" 
 | ReturnArityError (f,given,expected) -> logfun f ("return has " ^ string_of_int given ^ " value(s) but " ^ string_of_int expected ^ " expected")
 | ExternalStateVarError x -> "state variable " ^ x ^ " cannot have external visibility"
+| ReceiveNotExternal f -> logfun f "receive() function must be declared as external"
+| ReceiveNotPayable f -> logfun f "receive() function must be declared as payable"
+| ReceiveHasParameters f -> logfun f "receive() function cannot have parameters"
 | ex -> Printexc.to_string ex
 
 let exprtype_of_decltype = function
@@ -495,8 +501,20 @@ let typecheck_fun (edl : enum_decl list) (vdl : var_decl list) = function
       >>
       typecheck_local_decls "constructor" al
       >> 
-      typecheck_cmd "constructor" edl (merge_var_decls vdl al) [] c
-  | Proc (f,al,c,_,__,ret_types) ->
+      typecheck_cmd "constructor" edl (merge_var_decls vdl al)[] c
+  | Proc (f,al,c,vis,mut,ret_types) ->
+      (* Special validation for receive() function *)
+      (if f = "receive" then
+        (* receive() must be external *)
+        (if vis <> External then Error [ReceiveNotExternal f] else Ok ())
+        >>
+        (* receive() must be payable *)
+        (if mut <> Payable then Error [ReceiveNotPayable f] else Ok ())
+        >>
+        (* receive() cannot have parameters *)
+        (if al <> [] then Error [ReceiveHasParameters f] else Ok ())
+      else Ok ())
+      >>
       no_dup_local_var_decls f al
       >> 
       typecheck_local_decls f al

@@ -363,7 +363,13 @@ and step_cmd = function
         let from_state =  { (st.accounts from) with balance = from_bal - amt } in
         if exists_account st rcv then
           let rcv_state = { (st.accounts rcv) with balance = (st.accounts rcv).balance + amt } in
-           St { st with accounts = st.accounts |> bind rcv rcv_state |> bind from from_state}
+          let st' = { st with accounts = st.accounts |> bind rcv rcv_state |> bind from from_state} in
+          (* Check if the receiver has a receive() function and call it *)
+          (match find_fun_in_sysstate st' rcv "receive" with
+            | Some _ -> 
+                (* Call the receive() function with empty arguments *)
+                CmdSt(ProcCall(AddrConst rcv, "receive", IntConst 0, []), st')
+            | None -> St st')
         else
           let rcv_state = { balance = amt; storage = botenv; code = None; } in
           St { st with accounts = st.accounts |> bind rcv rcv_state |> bind from from_state; active = rcv::st.active }
