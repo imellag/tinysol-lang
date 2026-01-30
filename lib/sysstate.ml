@@ -218,3 +218,37 @@ let bind_fargs_aargs (xl : local_var_decl list) (vl : exprval list) : env =
   botenv 
   xl 
   vl 
+
+let get_state_var_names (Contract(_, _, vdl, _)) : ide list =
+  List.map (fun (vd : var_decl) -> vd.name) vdl
+
+(* Checks if a function is view or pure (readonly) *)
+let is_readonly_fun (fdecl : fun_decl) : bool = match fdecl with
+  | Proc(_, _, _, _, m, _) -> m = View || m = Pure
+  | Constr(_, _, _) -> false
+
+(* Checks if a command modifies state variables *)
+let rec cmd_modifies_state_var (state_vars : ide list) (contract : contract) (c : cmd) : bool = 
+  match c with
+  | Assign(x, _) -> List.mem x state_vars
+  | MapW(x, _, _) -> List.mem x state_vars
+  | Send(_, _) -> true
+  | Seq(c1, c2) -> 
+      cmd_modifies_state_var state_vars contract c1 || 
+      cmd_modifies_state_var state_vars contract c2
+  | If(_, c1, c2) -> 
+      cmd_modifies_state_var state_vars contract c1 || 
+      cmd_modifies_state_var state_vars contract c2
+  | Block(_, c) -> cmd_modifies_state_var state_vars contract c
+  | ExecBlock(c) -> cmd_modifies_state_var state_vars contract c
+  | ProcCall(e_to, f, _, _) -> (match e_to with
+      | This -> (match find_fun_in_contract contract f with
+           | Some fdecl -> not (is_readonly_fun fdecl)
+           | None -> true)
+      | _ -> true)
+  | ExecProcCall(c) -> cmd_modifies_state_var state_vars contract c
+  | _ -> false
+
+let get_mutability_from_fun = function
+  | Proc(_, _, _, _, m, _) -> m
+  | Constr(_, _, m) -> m

@@ -249,24 +249,31 @@ let rec step_expr (e,st) = match e with
       { (st.accounts txfrom) with balance = (st.accounts txfrom).balance - txvalue } in
     let to_state  = 
       { (st.accounts txto) with balance = (st.accounts txto).balance + txvalue } in 
-    let fdecl = Option.get (find_fun_in_sysstate st txto f) in  
-    (* setup new callstack frame *)
-    let xl = get_var_decls_from_fun fdecl in
-    let xl',vl' =
-      { ty=VarT(AddrBT false); name="msg.sender"; } :: 
-      { ty=VarT(UintBT); name="msg.value"; } :: xl,
-      Addr txfrom :: 
-      Uint txvalue :: txargs
-    in
-    let fr' = { callee = txto; locals = [bind_fargs_aargs xl' vl'] } in 
-    let st' = { accounts = st.accounts 
-                  |> bind txfrom from_state
-                  |> bind txto to_state; 
-                callstack = fr' :: st.callstack;
-                blocknum = st.blocknum;
-                active = st.active } in
+    let fdecl = Option.get (find_fun_in_sysstate st txto f) in
+    let contract = Option.get (st.accounts txto).code in
+    let state_vars = get_state_var_names contract in
+    let m = get_mutability_from_fun fdecl in
     let c = get_cmd_from_fun fdecl in
-    (ExecFunCall(c), st')
+    if m = View && cmd_modifies_state_var state_vars contract c then
+      failwith "view function cannot modify state variables"
+    else
+    (* setup new callstack frame *)
+      let xl = get_var_decls_from_fun fdecl in
+      let xl',vl' =
+        { ty=VarT(AddrBT false); name="msg.sender"; } :: 
+        { ty=VarT(UintBT); name="msg.value"; } :: xl,
+        Addr txfrom :: 
+        Uint txvalue :: txargs
+      in
+      let fr' = { callee = txto; locals = [bind_fargs_aargs xl' vl'] } in 
+      let st' = { accounts = st.accounts 
+                    |> bind txfrom from_state
+                    |> bind txto to_state; 
+                  callstack = fr' :: st.callstack;
+                  blocknum = st.blocknum;
+                  active = st.active } in
+      let c = get_cmd_from_fun fdecl in
+      (ExecFunCall(c), st')
 
   | FunCall(e_to,f,e_value,e_args) when is_val e_to && is_val e_value -> 
     let (e_args', st') = step_expr_list (e_args, st) in 
@@ -418,23 +425,30 @@ and step_cmd = function
         let to_state  = 
           { (st.accounts txto) with balance = (st.accounts txto).balance + txvalue } in 
         let fdecl = Option.get (find_fun_in_sysstate st txto f) in  
-        (* setup new stack frame TODO *)
-        let xl = get_var_decls_from_fun fdecl in
-        let xl',vl' =
-          { ty=VarT(AddrBT false); name="msg.sender"; } :: 
-          { ty=VarT(UintBT); name="msg.value"; } :: xl,
-          Addr txfrom :: 
-          Uint txvalue :: txargs
-        in
-        let fr' = { callee = txto; locals = [bind_fargs_aargs xl' vl'] } in
-        let st' = { accounts = st.accounts 
-                      |> bind txfrom from_state
-                      |> bind txto to_state; 
-                    callstack = fr' :: st.callstack;
-                    blocknum = st.blocknum;
-                    active = st.active } in
+        let contract = Option.get (st.accounts txto).code in
+        let state_vars = get_state_var_names contract in
+        let m = get_mutability_from_fun fdecl in
         let c = get_cmd_from_fun fdecl in
-        CmdSt(ExecProcCall(c), st')
+        if m = View && cmd_modifies_state_var state_vars contract c then
+          Reverted "view function cannot modify state variables"
+        else
+        (* setup new stack frame TODO *)
+          let xl = get_var_decls_from_fun fdecl in
+          let xl',vl' =
+            { ty=VarT(AddrBT false); name="msg.sender"; } :: 
+            { ty=VarT(UintBT); name="msg.value"; } :: xl,
+            Addr txfrom :: 
+            Uint txvalue :: txargs
+          in
+          let fr' = { callee = txto; locals = [bind_fargs_aargs xl' vl'] } in
+          let st' = { accounts = st.accounts 
+                        |> bind txfrom from_state
+                        |> bind txto to_state; 
+                      callstack = fr' :: st.callstack;
+                      blocknum = st.blocknum;
+                      active = st.active } in
+          let c = get_cmd_from_fun fdecl in
+          CmdSt(ExecProcCall(c), st')
 
     | ProcCall(e_to,f,e_value,e_args) when is_val e_to && is_val e_value -> 
       let (e_args', st') = step_expr_list (e_args, st) in 
@@ -571,8 +585,11 @@ let exec_tx (n_steps : int) (tx: transaction) (st : sysstate) : (sysstate,string
             active = tx.txto :: st.active }
       | Some (Proc(_,xl,c,_,m,_))
       | Some (Constr(xl,c,m)) ->
+        let state_vars = get_state_var_names src in
         if m<>Payable && tx.txvalue>0 then 
             Error "sending ETH to a non-payable function"
+        else if m = View && cmd_modifies_state_var state_vars src c then
+            Error "view function cannot modify state variables"
         else
           let xl',vl' =
             if deploy then match tx.txargs with 
