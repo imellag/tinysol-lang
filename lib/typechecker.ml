@@ -190,16 +190,6 @@ let no_external_state_vars (vdl : var_decl list) : typecheck_result =
     | _ -> acc
   ) (Ok ())  
 
-let no_external_state_vars (vdl : var_decl list) : typecheck_result =
-  vdl
-  |> List.fold_left (fun acc vd ->
-    match vd.visibility with
-    | External ->
-        acc >> Error [ ExternalStateVarError vd.name ]
-    | _ -> acc
-  ) (Ok ())
-
-
 let no_dup_local_var_decls f vdl = 
   vdl 
   |> List.map (fun (vd : local_var_decl) -> vd.name) 
