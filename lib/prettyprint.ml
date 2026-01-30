@@ -50,7 +50,9 @@ and vars_of_cmd = function
   | Skip -> []
   | Decl(vd) -> [vd.name]
   | Assign(x,e) -> union [x] (vars_of_expr e)
-  | Decons(_) -> failwith "TODO: multiple return values"
+  | Decons(vars,e) -> 
+      let var_names = List.fold_left (fun acc v_opt -> match v_opt with None -> acc | Some x -> x::acc) [] vars in
+      union var_names (vars_of_expr e)
   | MapW(x,ek,ev) -> union [x] (union (vars_of_expr ek) (vars_of_expr ev))
   | Seq(c1,c2) -> union (vars_of_cmd c1) (vars_of_cmd c2)
   | If(e,c1,c2) -> union (vars_of_expr e) (union (vars_of_cmd c1) (vars_of_cmd c2))
@@ -159,7 +161,12 @@ and string_of_cmd = function
   | Skip -> "skip;"
   | Decl d -> string_of_local_var_decl d ^ " ;"
   | Assign(x,e) -> x ^ " = " ^ string_of_expr e ^ ";"
-  | Decons(_) -> failwith "TODO: multiple return values"
+  | Decons(vars,e) -> 
+      let vars_str = List.fold_left (fun acc v_opt -> 
+        let v_str = match v_opt with None -> "" | Some x -> x in
+        if acc="" then v_str else acc ^ "," ^ v_str
+      ) "" vars in
+      "(" ^ vars_str ^ ") = " ^ string_of_expr e ^ ";"
   | MapW(x,ek,ev) -> x ^ "[" ^ string_of_expr ek ^ "] = " ^ string_of_expr ev ^ ";"
   | Seq(c1,c2) -> string_of_cmd c1 ^ " " ^ string_of_cmd c2
   | If(e,c1,c2) -> "if (" ^ string_of_expr e ^ ") { " ^ string_of_cmd c1 ^ " } else { " ^ string_of_cmd c2 ^ " }"
